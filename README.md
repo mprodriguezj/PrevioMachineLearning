@@ -1,4 +1,4 @@
-# 🧠 Aplicación de Evaluación de Modelos de Machine Learning
+# Aplicación de Evaluación de Modelos de Machine Learning
 
 ## Descripción
 
@@ -14,7 +14,7 @@ La aplicación fue construida con **Streamlit** y permite una interacción visua
 
 - 📊 Análisis exploratorio de datos  
 - 🌳 Árboles de decisión con diferentes criterios de división  
-- 🤝 Modelos de ensamble: Random Forest, AdaBoost, Gradient Boosting, Bagging  
+- 🧩 Modelos de ensamble: Random Forest, AdaBoost, Gradient Boosting, Bagging  
 - 📈 Visualización de métricas de evaluación: matriz de confusión, clasificación, ROC y AUC  
 
 ---
@@ -38,6 +38,7 @@ streamlit run app.py
 Esto abrirá una interfaz gráfica en tu navegador donde podrás interactuar con los modelos disponibles.
 
 ## Estructura del Proyecto
+```bash
 .
 ├── app.py                       # Archivo principal que ejecuta la aplicación Streamlit
 ├── requirements.txt             # Archivo con las dependencias necesarias
@@ -49,3 +50,4 @@ Esto abrirá una interfaz gráfica en tu navegador donde podrás interactuar con
 │ ├── decision_tree.py           # Entrenamiento y evaluación de árboles de decisión
 │ └── ensemble_models.py         # Implementación y evaluación de modelos de ensamble
 └── README.md                    # Documentación general del proyecto
+```
