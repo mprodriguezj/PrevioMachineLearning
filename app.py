@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Añadir la carpeta del proyecto al path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import streamlit as st
 import pandas as pd
 from modules.data_loader import load_data, display_dataset_info
