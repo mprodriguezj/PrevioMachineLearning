@@ -1,28 +1,29 @@
 import streamlit as st
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier, BaggingClassifier
-from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, roc_auc_score
-from sklearn.preprocessing import label_binarize
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier, BaggingClassifier
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
+from sklearn.preprocessing import label_binarize
 
 def ensemble_models_module(df):
-    st.subheader("Selección de Modelo de Ensamble")
+    st.subheader("Selección de Modelos de Ensamble")
     
-    # Explicación general sobre modelos de ensamble
-    with st.expander("ℹ️ **Información sobre Modelos de Ensamble**"):
+    # Información introductoria
+    with st.expander("Acerca de los Modelos de Ensamble"):
         st.markdown("""
-        Los modelos de ensamble combinan múltiples algoritmos de aprendizaje para obtener 
-        un mejor rendimiento predictivo que cualquiera de los algoritmos constituyentes por sí solo.
-        
+        Los modelos de ensamble combinan múltiples algoritmos de aprendizaje
+        para lograr un mejor rendimiento predictivo que un único modelo.
+
         **Ventajas principales:**
         - Reducen el sobreajuste (overfitting)
         - Mejoran la generalización
-        - Son robustos frente a datos ruidosos
+        - Son más robustos frente a datos ruidosos
         """)
     
-    # Selección de modelos para comparar
+    # Selección de modelos
     st.write("**Selecciona los modelos a comparar:**")
     col1, col2, col3, col4 = st.columns(4)
     
@@ -49,22 +50,25 @@ def ensemble_models_module(df):
         st.warning("⚠️ Selecciona al menos un modelo para comparar")
         return
     
-    # Data preparation
+    # Preparación de datos
     st.write("**Preparación de datos:**")
     
-    target_col = st.selectbox(
-        "Selecciona la variable objetivo:",
-        df.columns,
-        key="target_select_ensemble"
-    )
+    col1, col2 = st.columns(2)
+    with col1:
+        target_col = st.selectbox(
+            "Selecciona la variable objetivo:",
+            df.columns,
+            key="target_select_ensemble"
+        )
     
-    available_features = [col for col in df.columns if col != target_col]
-    selected_features = st.multiselect(
-        "Selecciona las variables predictoras:",
-        available_features,
-        default=available_features,
-        key="features_select_ensemble"
-    )
+    with col2:
+        available_features = [col for col in df.columns if col != target_col]
+        selected_features = st.multiselect(
+            "Selecciona las variables predictoras:",
+            available_features,
+            default=available_features,
+            key="features_select_ensemble"
+        )
     
     if not selected_features:
         st.warning("⚠️ Selecciona al menos una variable predictora")
@@ -72,21 +76,71 @@ def ensemble_models_module(df):
     
     X = df[selected_features]
     y = df[target_col]
-    X = pd.get_dummies(X)
     
-    test_size = st.slider("Tamaño del conjunto de prueba:", 0.1, 0.4, 0.2, 0.05, key="test_size_ensemble")
-    random_state = st.number_input("Random state:", 0, 100, 42, key="random_state_ensemble")
+    # Limpieza de datos
+    missing_rows = X.isnull().any(axis=1) | y.isnull()
+    if missing_rows.any():
+        st.warning(f"⚠️ Se eliminaron {missing_rows.sum()} filas con valores nulos")
+        X = X[~missing_rows]
+        y = y[~missing_rows]
     
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state
-    )
+    # Variables categóricas
+    categorical_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
+    if categorical_cols:
+        st.info(f"ℹ️ Variables categóricas detectadas: {', '.join(categorical_cols)}")
+        try:
+            X = pd.get_dummies(X, drop_first=True)
+            st.success(f"✅ Variables convertidas a one-hot encoding. Nuevas dimensiones: {X.shape}")
+        except Exception as e:
+            st.error(f"❌ Error al convertir variables categóricas: {str(e)}")
+            return
+    else:
+        st.info("ℹ️ No se detectaron variables categóricas en los predictores")
+
+    # Variable objetivo
+    if y.dtype == 'object' or y.dtype.name == 'category':
+        st.info("ℹ️ La variable objetivo es categórica - convirtiendo a numérico")
+        try:
+            y, uniques = pd.factorize(y)
+            if len(uniques) < 2:
+                st.error("❌ La variable objetivo debe tener al menos 2 categorías diferentes")
+                return
+        except Exception as e:
+            st.error(f"❌ Error al procesar variable objetivo: {str(e)}")
+            return
+
+    # Distribución de clases después de limpieza
+    class_counts = pd.Series(y).value_counts()
     
-    # Configuración de modelos seleccionados
+    # Validación final
+    if len(np.unique(y)) < 2:
+        st.error("❌ No hay suficientes clases después de la limpieza. Se necesitan al menos 2 clases diferentes.")
+        return
+    
+    # División del dataset
+    st.write("**Configuración de división de datos:**")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        test_size = st.slider("Tamaño del conjunto de prueba:", 0.1, 0.4, 0.2, 0.05, key="test_size_ensemble")
+    with col2:
+        random_state = st.number_input("Random state:", 0, 100, 42, key="random_state_ensemble")
+
+    try:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=random_state, shuffle=True
+        )
+        st.success("✅ División de datos realizada exitosamente")
+    except Exception as e:
+        st.error(f"❌ Error en la división de datos: {str(e)}")
+        return
+    
+    # Configuración de modelos con explicaciones
     models_config = {}
     
     if "Random Forest" in selected_models:
-        st.subheader("🌲 Random Forest")
-        with st.expander("ℹ️ **Explicación de Random Forest**"):
+        st.subheader("Random Forest")
+        with st.expander("Explicación de Random Forest"):
             st.markdown("""
             **Random Forest** es un algoritmo de ensamble que combina múltiples árboles de decisión.
             
@@ -103,8 +157,8 @@ def ensemble_models_module(df):
         models_config["Random Forest"] = configure_random_forest()
     
     if "AdaBoost" in selected_models:
-        st.subheader("⚡ AdaBoost")
-        with st.expander("ℹ️ **Explicación de AdaBoost**"):
+        st.subheader("AdaBoost")
+        with st.expander("Explicación de AdaBoost"):
             st.markdown("""
             **AdaBoost** (Adaptive Boosting) es un algoritmo de boosting que combina múltiples clasificadores débiles.
             
@@ -121,8 +175,8 @@ def ensemble_models_module(df):
         models_config["AdaBoost"] = configure_adaboost()
     
     if "Gradient Boosting" in selected_models:
-        st.subheader("📈 Gradient Boosting")
-        with st.expander("ℹ️ **Explicación de Gradient Boosting**"):
+        st.subheader("Gradient Boosting")
+        with st.expander("Explicación de Gradient Boosting"):
             st.markdown("""
             **Gradient Boosting** es un algoritmo de boosting que optimiza una función de pérdida mediante descenso de gradiente.
             
@@ -139,8 +193,8 @@ def ensemble_models_module(df):
         models_config["Gradient Boosting"] = configure_gradient_boosting()
     
     if "Bagging" in selected_models:
-        st.subheader("👜 Bagging")
-        with st.expander("ℹ️ **Explicación de Bagging**"):
+        st.subheader("Bagging")
+        with st.expander("Explicación de Bagging"):
             st.markdown("""
             **Bagging** (Bootstrap Aggregating) es una técnica que reduce la varianza de los algoritmos de aprendizaje.
             
@@ -156,301 +210,195 @@ def ensemble_models_module(df):
             """)
         models_config["Bagging"] = configure_bagging()
     
-    # Botón para entrenar todos los modelos seleccionados
-    if st.button("🚀 Entrenar y Comparar Modelos", type="primary"):
-        results = {}
-        
-        for model_name, config in models_config.items():
-            with st.spinner(f"Entrenando {model_name}..."):
-                try:
-                    if model_name == "Random Forest":
-                        model = RandomForestClassifier(**config, random_state=random_state)
-                    elif model_name == "AdaBoost":
-                        model = AdaBoostClassifier(**config, random_state=random_state)
-                    elif model_name == "Gradient Boosting":
-                        model = GradientBoostingClassifier(**config, random_state=random_state)
-                    elif model_name == "Bagging":
-                        model = BaggingClassifier(**config, random_state=random_state)
-                    
-                    model.fit(X_train, y_train)
-                    y_pred = model.predict(X_test)
-                    y_prob = model.predict_proba(X_test) if hasattr(model, "predict_proba") else None
-                    
-                    results[model_name] = {
-                        "model": model,
-                        "y_pred": y_pred,
-                        "y_prob": y_prob,
-                        "classes": model.classes_
-                    }
-                    
-                except Exception as e:
-                    st.error(f"❌ Error al entrenar {model_name}: {str(e)}")
-        
+    # Entrenamiento
+    if st.button("Entrenar y Comparar Modelos", type="primary"):
+        results = train_models(models_config, X_train, y_train, X_test, y_test, random_state)
         if results:
             display_comparison_results(results, y_test)
+        else:
+            st.error("❌ No se pudo entrenar ningún modelo. Revisa parámetros y datos.")
 
 def configure_random_forest():
     col1, col2 = st.columns(2)
-    
     with col1:
         n_estimators = st.slider("Número de árboles:", 10, 200, 100, key="rf_n_estimators")
-        max_depth = st.slider("Profundidad máxima:", 1, 20, 5, key="rf_max_depth")
-    
+        max_depth = st.slider("Profundidad máxima:", 1, 20, None, key="rf_max_depth")
     with col2:
         min_samples_split = st.slider("Mínimo samples para split:", 2, 20, 2, key="rf_min_samples")
         criterion = st.selectbox("Criterio:", ["gini", "entropy"], key="rf_criterion")
-    
-    return {
-        "n_estimators": n_estimators,
-        "max_depth": max_depth,
-        "min_samples_split": min_samples_split,
-        "criterion": criterion
-    }
+    return {"n_estimators": n_estimators, "max_depth": max_depth,
+            "min_samples_split": min_samples_split, "criterion": criterion}
 
 def configure_adaboost():
     col1, col2 = st.columns(2)
-    
     with col1:
         n_estimators = st.slider("Número de estimadores:", 10, 200, 50, key="ab_n_estimators")
-    
     with col2:
         learning_rate = st.slider("Learning rate:", 0.01, 1.0, 0.1, 0.01, key="ab_learning_rate")
-    
-    return {
-        "n_estimators": n_estimators,
-        "learning_rate": learning_rate
-    }
+    return {"n_estimators": n_estimators, "learning_rate": learning_rate}
 
 def configure_gradient_boosting():
     col1, col2 = st.columns(2)
-    
     with col1:
         n_estimators = st.slider("Número de estimadores:", 10, 200, 100, key="gb_n_estimators")
         learning_rate = st.slider("Learning rate:", 0.01, 0.3, 0.1, 0.01, key="gb_learning_rate")
-    
     with col2:
         max_depth = st.slider("Profundidad máxima:", 1, 10, 3, key="gb_max_depth")
-        subsample = st.slider("Subsample:", 0.1, 1.0, 1.0, 0.1, key="gb_subsample")
-    
-    return {
-        "n_estimators": n_estimators,
-        "learning_rate": learning_rate,
-        "max_depth": max_depth,
-        "subsample": subsample
-    }
+        min_samples_split = st.slider("Mínimo samples split:", 2, 20, 2, key="gb_min_samples")
+    return {"n_estimators": n_estimators, "learning_rate": learning_rate,
+            "max_depth": max_depth, "min_samples_split": min_samples_split}
 
 def configure_bagging():
     col1, col2 = st.columns(2)
-    
     with col1:
         n_estimators = st.slider("Número de estimadores:", 10, 100, 10, key="bag_n_estimators")
-    
     with col2:
         max_samples = st.slider("Máximo samples:", 0.1, 1.0, 1.0, 0.1, key="bag_max_samples")
+    return {"n_estimators": n_estimators, "max_samples": max_samples}
+
+def train_models(models_config, X_train, y_train, X_test, y_test, random_state):
+    results = {}
+    for model_name, config in models_config.items():
+        with st.spinner(f"Entrenando {model_name}..."):
+            try:
+                if model_name == "Random Forest":
+                    model = RandomForestClassifier(**config, random_state=random_state)
+                elif model_name == "AdaBoost":
+                    model = AdaBoostClassifier(**config, random_state=random_state)
+                elif model_name == "Gradient Boosting":
+                    model = GradientBoostingClassifier(**config, random_state=random_state)
+                elif model_name == "Bagging":
+                    model = BaggingClassifier(**config, random_state=random_state)
+
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+                y_prob = model.predict_proba(X_test) if hasattr(model, "predict_proba") else None
+
+                results[model_name] = {
+                    "y_pred": y_pred,
+                    "y_prob": y_prob,
+                    "classes": model.classes_
+                }
+                st.success(f"✅ {model_name} entrenado exitosamente")
+
+            except Exception as e:
+                st.error(f"❌ Error al entrenar {model_name}: {str(e)}")
     
-    return {
-        "n_estimators": n_estimators,
-        "max_samples": max_samples
-    }
+    return results
 
 def display_comparison_results(results, y_test):
-    st.subheader("📊 Comparación de Modelos")
+    st.subheader("Comparación de Modelos")
     
-    # Métricas de comparación
     comparison_data = []
-    
     for model_name, result in results.items():
         report = classification_report(y_test, result["y_pred"], output_dict=True)
         accuracy = report['accuracy']
         weighted_avg = report['weighted avg']
-        
         comparison_data.append({
             "Modelo": model_name,
-            "Precisión": accuracy,
+            "Accuracy": accuracy,
             "Recall": weighted_avg['recall'],
             "F1-Score": weighted_avg['f1-score']
         })
     
     comparison_df = pd.DataFrame(comparison_data)
-    
-    # Mostrar tabla comparativa - FORMA CORRECTA
-    # Aplicar formato solo a las columnas numéricas
-    st.dataframe(
-        comparison_df.style.format({
-            'Precisión': '{:.3f}',
-            'Recall': '{:.3f}',
-            'F1-Score': '{:.3f}'
-        }).highlight_max(color='lightgreen').highlight_min(color='#ffcccb')
-    )
-    
-    # Mostrar métricas individuales para cada modelo
-    for model_name, result in results.items():
-        with st.expander(f"📋 Métricas detalladas - {model_name}"):
-            display_ensemble_results(
-                y_test, 
-                result["y_pred"], 
-                result["y_prob"], 
-                result["classes"], 
-                model_name
-            )
+    st.dataframe(comparison_df.style.format({
+        'Accuracy': '{:.3f}', 'Recall': '{:.3f}', 'F1-Score': '{:.3f}'
+    }).highlight_max(color='lightgreen').highlight_min(color='#ffcccb'))
 
-def display_ensemble_results(y_test, y_pred, y_prob, classes, model_name):
-    tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC y AUC"])
-    
+    # Resultados individuales
+    for model_name, result in results.items():
+        with st.expander(f"Resultados detallados - {model_name}"):
+            show_model_results(y_test, result["y_pred"], result["y_prob"], result["classes"], model_name)
+
+def show_model_results(y_test, y_pred, y_prob, classes, model_name):
+    tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC"])
+
     with tab1:
-        cm = confusion_matrix(y_test, y_pred)
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=classes, yticklabels=classes, ax=ax)
-        ax.set_title(f'Matriz de Confusión - {model_name}')
-        ax.set_xlabel('Predicted')
-        ax.set_ylabel('Actual')
-        st.pyplot(fig)
+        show_confusion_matrix(y_test, y_pred, classes, model_name)
     
     with tab2:
-        # Mejorar el reporte de clasificación como lo hicimos antes
-        st.subheader("📋 Reporte de Clasificación")
-        
-        # Calcular el reporte
-        report = classification_report(y_test, y_pred, output_dict=True)
-        report_df = pd.DataFrame(report).transpose()
-        
-        # Separar métricas por clase y generales - FORMA CORRECTA
-        accuracy = report['accuracy']  # Exactitud global
-        
-        # Obtener promedios (pueden no existir si hay solo una clase)
-        macro_avg = report.get('macro avg', {})
-        weighted_avg = report.get('weighted avg', {})
-        
-        # Obtener métricas por clase (excluyendo las globales)
-        class_metrics = {}
-        for key in report.keys():
-            if key not in ['accuracy', 'macro avg', 'weighted avg'] and isinstance(report[key], dict):
-                class_metrics[key] = report[key]
-        
-        class_metrics_df = pd.DataFrame(class_metrics).transpose()
-        
-        # Mostrar métricas globales de manera visual y clara
-        st.write("**Métricas Globales del Modelo**")
-        
-        # Crear columnas para las métricas principales
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric(
-                label="Exactitud (Accuracy)",
-                value=f"{accuracy:.3f}",
-                help="Porcentaje total de predicciones correctas"
-            )
-        
-        with col2:
-            precision_avg = weighted_avg.get('precision', 0) if weighted_avg else 0
-            st.metric(
-                label="Precisión Promedio",
-                value=f"{precision_avg:.3f}",
-                help="Capacidad del modelo para no predecir falsos positivos"
-            )
-        
-        with col3:
-            recall_avg = weighted_avg.get('recall', 0) if weighted_avg else 0
-            st.metric(
-                label="Recall Promedio", 
-                value=f"{recall_avg:.3f}",
-                help="Capacidad del modelo para encontrar todos los positivos"
-            )
-        
-        with col4:
-            f1_avg = weighted_avg.get('f1-score', 0) if weighted_avg else 0
-            st.metric(
-                label="F1-Score Promedio",
-                value=f"{f1_avg:.3f}",
-                help="Balance entre Precisión y Recall"
-            )
-        
-        # Mostrar tabla con métricas por clase si hay múltiples clases
-        if not class_metrics_df.empty:
-            st.write("**Métricas por Clase**")
-            
-            # Formatear el dataframe para mejor visualización
-            class_metrics_display = class_metrics_df.copy()
-            class_metrics_display.index.name = 'Clase'
-            class_metrics_display = class_metrics_display.reset_index()
-            
-            # Mostrar tabla con métricas por clase
-            st.dataframe(
-                class_metrics_display.style.format({
-                    'precision': '{:.3f}',
-                    'recall': '{:.3f}', 
-                    'f1-score': '{:.3f}',
-                    'support': '{:.0f}'
-                }).highlight_max(subset=['precision', 'recall', 'f1-score'], color='#90EE90')
-                .highlight_min(subset=['precision', 'recall', 'f1-score'], color='#FFCCCB'),
-                use_container_width=True,
-                height=min(400, 150 + len(class_metrics_df) * 35)
-            )
-
+        show_classification_report(y_test, y_pred, model_name)
+    
     with tab3:
-        if y_prob is not None:
+        show_roc_curve(y_test, y_prob, classes, model_name)
+
+def show_confusion_matrix(y_test, y_pred, classes, model_name):
+    """Muestra matriz de confusión con tamaño de fuente ajustado"""
+    cm = confusion_matrix(y_test, y_pred)
+    
+    # Ajustar tamaño de figura según número de clases
+    n_classes = len(classes)
+    fig_size = max(8, n_classes * 0.8)
+    
+    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+    
+    # Tamaño de fuente ajustable
+    font_size = max(8, 12 - n_classes//2)
+    
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=classes, yticklabels=classes, ax=ax,
+                annot_kws={'size': font_size, 'weight': 'bold'},
+                cbar_kws={'shrink': 0.8})
+    
+    ax.set_title(f"Matriz de Confusión - {model_name}", fontsize=12)
+    ax.set_xlabel('Predicciones', fontsize=10)
+    ax.set_ylabel('Valores Reales', fontsize=10)
+    ax.tick_params(axis='both', which='major', labelsize=9)
+    
+    # Rotar etiquetas si hay muchas clases
+    if n_classes > 5:
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+    
+    st.pyplot(fig)
+
+def show_classification_report(y_test, y_pred, model_name):
+    report = classification_report(y_test, y_pred, output_dict=True)
+    report_df = pd.DataFrame(report).transpose()
+    accuracy = report['accuracy']
+    weighted_avg = report.get('weighted avg', {})
+
+    st.write("**Métricas Principales:**")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Exactitud", f"{accuracy:.3f}")
+    col2.metric("Precisión", f"{weighted_avg.get('precision', 0):.3f}")
+    col3.metric("Recall", f"{weighted_avg.get('recall', 0):.3f}")
+    col4.metric("F1-Score", f"{weighted_avg.get('f1-score', 0):.3f}")
+
+    st.write("**Métricas por Clase:**")
+    st.dataframe(report_df.style.format({
+        'precision': '{:.3f}', 'recall': '{:.3f}',
+        'f1-score': '{:.3f}', 'support': '{:.0f}'
+    }), use_container_width=True)
+
+def show_roc_curve(y_test, y_prob, classes, model_name):
+    if y_prob is not None and len(classes) > 1:
+        try:
             n_classes = len(classes)
-            
+            fig, ax = plt.subplots(figsize=(10, 6))
+
             if n_classes == 2:
-                # --- Caso binario ---
                 fpr, tpr, _ = roc_curve(y_test, y_prob[:, 1])
                 roc_auc = auc(fpr, tpr)
-                
-                fig, ax = plt.subplots(figsize=(10, 6))
-                ax.plot(fpr, tpr, color='darkorange', lw=3, label=f'ROC (AUC = {roc_auc:.3f})')
-                ax.plot([0, 1], [0, 1], 'k--', lw=2, label='Aleatorio (AUC = 0.5)')
-                
-                # Etiquetas y límites
-                ax.set_xlabel("Tasa de Falsos Positivos (FPR)", fontsize=11)
-                ax.set_ylabel("Tasa de Verdaderos Positivos (TPR)", fontsize=11)
-                ax.set_xlim([0.0, 1.0])
-                ax.set_ylim([0.0, 1.05])
-                
-                ax.set_title(f'Curva ROC - {model_name}', fontsize=13, fontweight="bold")
-                ax.legend(loc='lower right')
-                ax.grid(True, alpha=0.3)
-                st.pyplot(fig)
-            
+                ax.plot(fpr, tpr, lw=2, label=f"AUC = {roc_auc:.3f}")
             else:
-                # --- Caso multiclase ---
                 y_test_bin = label_binarize(y_test, classes=classes)
-                
-                fpr, tpr, roc_auc = {}, {}, {}
                 colors = sns.color_palette("husl", n_classes)
-                
-                fig, ax = plt.subplots(figsize=(10, 6))
-                
-                for i in range(n_classes):
-                    fpr[i], tpr[i], _ = roc_curve(y_test_bin[:, i], y_prob[:, i])
-                    roc_auc[i] = auc(fpr[i], tpr[i])
-                    ax.plot(fpr[i], tpr[i], color=colors[i], lw=2,
-                            label=f'{classes[i]} (AUC = {roc_auc[i]:.3f})')
-                
-                # Micro-promedio
-                fpr["micro"], tpr["micro"], _ = roc_curve(y_test_bin.ravel(), y_prob.ravel())
-                roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
-                ax.plot(fpr["micro"], tpr["micro"], color='black', linestyle=':', lw=3,
-                        label=f'Micro-promedio (AUC = {roc_auc["micro"]:.3f})')
-                
-                # Línea base
-                ax.plot([0, 1], [0, 1], 'k--', lw=2)
-                
-                # Etiquetas y límites
-                ax.set_xlabel("Tasa de Falsos Positivos (FPR)", fontsize=11)
-                ax.set_ylabel("Tasa de Verdaderos Positivos (TPR)", fontsize=11)
-                ax.set_xlim([0.0, 1.0])
-                ax.set_ylim([0.0, 1.05])
-                
-                ax.set_title(f'Curva ROC Multiclase - {model_name}', fontsize=13, fontweight="bold")
-                ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5))
-                ax.grid(True, alpha=0.3)
-                st.pyplot(fig)
-                
-                # Mostrar métricas AUC agregadas
-                macro_auc = roc_auc_score(y_test_bin, y_prob, multi_class='ovr', average='macro')
-                micro_auc = roc_auc_score(y_test_bin, y_prob, multi_class='ovr', average='micro')
-                st.write(f"**Macro AUC:** {macro_auc:.3f}")
-                st.write(f"**Micro AUC:** {micro_auc:.3f}")
-        else:
-            st.info("Este modelo no soporta probabilidades de predicción")
+                for i, color in zip(range(n_classes), colors):
+                    fpr, tpr, _ = roc_curve(y_test_bin[:, i], y_prob[:, i])
+                    roc_auc = auc(fpr, tpr)
+                    ax.plot(fpr, tpr, color=color, lw=2,
+                            label=f'Clase {classes[i]} (AUC = {roc_auc:.3f})')
+
+            ax.plot([0, 1], [0, 1], 'k--', label='Línea base')
+            ax.set_xlabel("Tasa de Falsos Positivos")
+            ax.set_ylabel("Tasa de Verdaderos Positivos")
+            ax.set_title(f"Curva ROC - {model_name}")
+            ax.legend(loc="lower right")
+            ax.grid(True, alpha=0.3)
+            st.pyplot(fig)
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo generar la curva ROC: {str(e)}")
+    else:
+        st.info("ℹ️ La curva ROC no está disponible para este modelo")
