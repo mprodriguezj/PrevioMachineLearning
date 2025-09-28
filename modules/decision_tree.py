@@ -4,8 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, roc_auc_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import label_binarize
 
 def decision_tree_module(df):
@@ -52,39 +53,250 @@ def decision_tree_module(df):
         X = X[~missing_rows]
         y = y[~missing_rows]
     
-    # Manejo de variables categóricas
+    # Manejo de variables categóricas y numéricas
+    st.write("**Procesamiento de variables predictoras:**")
+    
+    # Verificar si hay variables con valores infinitos o NaN y reemplazarlos
+    has_inf = np.any(np.isinf(X.select_dtypes(include=['float64', 'int64']).values))
+    if has_inf:
+        st.warning("⚠️ Se detectaron valores infinitos en los datos. Reemplazando con NaN...")
+        X = X.replace([np.inf, -np.inf], np.nan)
+    
+    # Rellenar valores NaN en variables numéricas con la media
+    numeric_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    for col in numeric_cols:
+        if X[col].isna().any():
+            X[col] = X[col].fillna(X[col].mean())
+            st.info(f"ℹ️ Valores faltantes en '{col}' rellenados con la media")
+    
+    # Detectar variables categóricas (explícitas e implícitas)
     categorical_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
+    
+    # Detectar variables numéricas que podrían ser categóricas (con pocos valores únicos)
+    for col in numeric_cols:
+        if col in X.columns and X[col].nunique() < 10 and X[col].nunique() / len(X) < 0.05:
+            categorical_cols.append(col)
+    
+    # Eliminar duplicados
+    categorical_cols = list(set(categorical_cols))
+    
+    # Verificar si hay variables con demasiados valores únicos (posible error)
+    for col in categorical_cols[:]:  # Usar una copia para poder modificar la lista original
+        if X[col].nunique() > 100:  # Si hay más de 100 valores únicos, probablemente no es categórica
+            st.warning(f"⚠️ La variable '{col}' tiene {X[col].nunique()} valores únicos. No se tratará como categórica.")
+            categorical_cols.remove(col)
+    
     if categorical_cols:
         st.info(f"ℹ️ Variables categóricas detectadas: {', '.join(categorical_cols)}")
+        
+        # Convertir a dummies con manejo de errores más robusto
         try:
-            X = pd.get_dummies(X, drop_first=True)
-            st.success(f"✅ Variables convertidas a one-hot encoding. Nuevas dimensiones: {X.shape}")
+            # Crear una copia de seguridad de X
+            X_backup = X.copy()
+            
+            # Convertir solo las columnas categóricas
+            X_cat = pd.get_dummies(X[categorical_cols], drop_first=True, dummy_na=False)
+            
+            # Mantener las columnas numéricas que no son categóricas
+            non_cat_cols = [col for col in X.columns if col not in categorical_cols]
+            X_non_cat = X[non_cat_cols]
+            
+            # Combinar ambos conjuntos de datos
+            X = pd.concat([X_non_cat, X_cat], axis=1)
+            
+            st.success(f"✅ Variables categóricas convertidas a one-hot encoding. Nuevas dimensiones: {X.shape}")
         except Exception as e:
             st.error(f"❌ Error al convertir variables categóricas: {str(e)}")
-            return
+            st.warning("Intentando método alternativo de conversión...")
+            
+            try:
+                # Restaurar X desde la copia de seguridad
+                X = X_backup.copy()
+                
+                # Método alternativo: convertir una por una
+                for col in categorical_cols:
+                    try:
+                        # Convertir a string primero para manejar diferentes tipos de datos
+                        X[col] = X[col].astype(str)
+                    except Exception as e_col:
+                        st.warning(f"No se pudo convertir la columna '{col}': {str(e_col)}")
+                
+                # Intentar la conversión con manejo explícito de columnas
+                dummies_list = []
+                remaining_cols = []
+                
+                for col in X.columns:
+                    if col in categorical_cols:
+                        try:
+                            # Crear dummies para esta columna
+                            dummies = pd.get_dummies(X[col], prefix=col, drop_first=True)
+                            dummies_list.append(dummies)
+                        except Exception as e_dummy:
+                            st.warning(f"Error al crear dummies para '{col}': {str(e_dummy)}")
+                            # Mantener la columna original si falla
+                            remaining_cols.append(col)
+                    else:
+                        remaining_cols.append(col)
+                
+                # Reconstruir el DataFrame
+                if dummies_list:
+                    all_dummies = pd.concat(dummies_list, axis=1)
+                    X = pd.concat([X[remaining_cols], all_dummies], axis=1)
+                    st.success(f"✅ Variables convertidas con método alternativo. Nuevas dimensiones: {X.shape}")
+                else:
+                    st.warning("⚠️ No se pudieron crear variables dummy. Manteniendo variables originales.")
+            except Exception as e2:
+                st.error(f"❌ Error en método alternativo: {str(e2)}")
+                st.warning("⚠️ Continuando con las variables originales sin convertir a dummies.")
     else:
         st.info("ℹ️ No se detectaron variables categóricas en los predictores")
     
     # Procesamiento de variable objetivo
-    y = y.astype(str).str.strip()
-    y = y.replace("?", np.nan)
-    mask = ~y.isna()
-    X = X[mask]
-    y = y[mask]
-
-    # Eliminación de clases raras
-    class_counts = y.value_counts()
-    rare_classes = class_counts[class_counts < 2].index
-    if len(rare_classes) > 0:
-        st.warning(f"⚠️ Se eliminaron {len(rare_classes)} clases con menos de 2 muestras")
-        mask = ~y.isin(rare_classes)
+    # Detectar si la variable objetivo es numérica o categórica
+    is_numeric_target = pd.api.types.is_numeric_dtype(y)
+    
+    if is_numeric_target:
+        st.info(f"ℹ️ Variable objetivo '{target_col}' detectada como numérica/continua")
+        
+        # Para variables numéricas, verificamos valores nulos y outliers
+        if y.isna().any():
+            st.warning(f"⚠️ Se eliminaron {y.isna().sum()} filas con valores nulos en la variable objetivo")
+            mask = ~y.isna()
+            X = X[mask]
+            y = y[mask]
+        
+        # Detectar y manejar outliers (opcional)
+        Q1 = y.quantile(0.25)
+        Q3 = y.quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        outliers = (y < lower_bound) | (y > upper_bound)
+        
+        if outliers.sum() > 0:
+            st.info(f"ℹ️ Se detectaron {outliers.sum()} valores atípicos en la variable objetivo")
+        
+        # Opciones para manejar variables numéricas
+        st.subheader("Opciones para variable objetivo numérica")
+        numeric_option = st.radio(
+            "¿Cómo deseas manejar la variable objetivo numérica?",
+            ["Usar modelo de regresión", "Discretizar en intervalos para clasificación"],
+            key="numeric_option"
+        )
+        
+        if numeric_option == "Discretizar en intervalos para clasificación":
+            # Opciones de discretización
+            discretize_method = st.selectbox(
+                "Método de discretización:",
+                ["Intervalos iguales", "Cuantiles", "Personalizado"],
+                key="discretize_method"
+            )
+            
+            if discretize_method == "Intervalos iguales":
+                n_bins = st.slider("Número de intervalos:", 2, 10, 4, key="n_bins_equal")
+                # Discretizar en intervalos iguales
+                bins = np.linspace(y.min(), y.max(), n_bins + 1)
+                labels = [f'{bins[i]:.2f}-{bins[i+1]:.2f}' for i in range(len(bins)-1)]
+                y_discretized = pd.cut(y, bins=bins, labels=labels, include_lowest=True)
+                
+                # Mostrar distribución de clases
+                class_counts = y_discretized.value_counts().sort_index()
+                st.write("Distribución de clases después de discretización:")
+                st.bar_chart(class_counts)
+                
+                # Reemplazar la variable objetivo con la versión discretizada
+                y = y_discretized
+                st.success(f"✅ Variable objetivo discretizada en {n_bins} intervalos iguales")
+                is_numeric_target = False
+                
+            elif discretize_method == "Cuantiles":
+                n_bins = st.slider("Número de cuantiles:", 2, 10, 4, key="n_bins_quantile")
+                # Discretizar por cuantiles
+                bins = pd.qcut(y, q=n_bins, retbins=True)[1]
+                labels = [f'{bins[i]:.2f}-{bins[i+1]:.2f}' for i in range(len(bins)-1)]
+                y_discretized = pd.cut(y, bins=bins, labels=labels, include_lowest=True)
+                
+                # Mostrar distribución de clases
+                class_counts = y_discretized.value_counts().sort_index()
+                st.write("Distribución de clases después de discretización:")
+                st.bar_chart(class_counts)
+                
+                # Reemplazar la variable objetivo con la versión discretizada
+                y = y_discretized
+                st.success(f"✅ Variable objetivo discretizada en {n_bins} cuantiles")
+                is_numeric_target = False
+                
+            elif discretize_method == "Personalizado":
+                # Permitir al usuario definir puntos de corte personalizados
+                min_val = float(y.min())
+                max_val = float(y.max())
+                
+                st.write(f"Rango de valores: {min_val:.2f} a {max_val:.2f}")
+                
+                # Entrada de texto para puntos de corte
+                cutpoints_text = st.text_input(
+                    "Puntos de corte (separados por coma):",
+                    value=f"{min_val},{(min_val+max_val)/2:.2f},{max_val}",
+                    key="custom_cutpoints"
+                )
+                
+                try:
+                    # Convertir texto a lista de puntos de corte
+                    cutpoints = [float(x.strip()) for x in cutpoints_text.split(",")]
+                    cutpoints = sorted(list(set(cutpoints)))  # Eliminar duplicados y ordenar
+                    
+                    if len(cutpoints) < 2:
+                        st.error("❌ Se necesitan al menos 2 puntos de corte")
+                    else:
+                        # Asegurarse de que los puntos de corte cubran todo el rango
+                        if cutpoints[0] > min_val:
+                            cutpoints.insert(0, min_val)
+                        if cutpoints[-1] < max_val:
+                            cutpoints.append(max_val)
+                        
+                        # Crear etiquetas y discretizar
+                        labels = [f'{cutpoints[i]:.2f}-{cutpoints[i+1]:.2f}' for i in range(len(cutpoints)-1)]
+                        y_discretized = pd.cut(y, bins=cutpoints, labels=labels, include_lowest=True)
+                        
+                        # Mostrar distribución de clases
+                        class_counts = y_discretized.value_counts().sort_index()
+                        st.write("Distribución de clases después de discretización:")
+                        st.bar_chart(class_counts)
+                        
+                        # Reemplazar la variable objetivo con la versión discretizada
+                        y = y_discretized
+                        st.success(f"✅ Variable objetivo discretizada con puntos de corte personalizados")
+                        is_numeric_target = False
+                        
+                except Exception as e:
+                    st.error(f"❌ Error al procesar puntos de corte: {str(e)}")
+        else:
+            # Para árboles de decisión con variable objetivo numérica, usamos DecisionTreeRegressor
+            st.info("ℹ️ Se utilizará un modelo de regresión (DecisionTreeRegressor) para la variable objetivo numérica")
+        
+    else:
+        st.info(f"ℹ️ Variable objetivo '{target_col}' detectada como categórica")
+        
+        # Para variables categóricas, limpiamos y procesamos
+        y = y.astype(str).str.strip()
+        y = y.replace("?", np.nan)
+        mask = ~y.isna()
         X = X[mask]
         y = y[mask]
-    
-    # Validación final
-    if len(y.unique()) < 2:
-        st.error("❌No hay suficientes clases para entrenar el modelo. Se necesitan al menos 2 clases diferentes.")
-        return
+
+        # Eliminación de clases raras
+        class_counts = y.value_counts()
+        rare_classes = class_counts[class_counts < 2].index
+        if len(rare_classes) > 0:
+            st.warning(f"⚠️ Se eliminaron {len(rare_classes)} clases con menos de 2 muestras")
+            mask = ~y.isin(rare_classes)
+            X = X[mask]
+            y = y[mask]
+        
+        # Validación final para clasificación
+        if len(y.unique()) < 2:
+            st.error("❌No hay suficientes clases para entrenar el modelo. Se necesitan al menos 2 clases diferentes.")
+            return
     
     # --- Configuración de división de datos ---
     st.write("**Configuración de división de datos:**")
@@ -148,35 +360,109 @@ def decision_tree_module(df):
     # --- Entrenamiento del modelo ---
     if st.button("Entrenar Árbol de Decisión", type="primary"):
         try:
-            if len(np.unique(y_train)) < 2:
-                st.error("❌ El conjunto de entrenamiento debe tener al menos 2 clases diferentes")
-                return
-            
             with st.spinner("Entrenando modelo..."):
-                model = DecisionTreeClassifier(
-                    criterion=criterion,
-                    max_depth=max_depth,
-                    min_samples_split=min_samples_split,
-                    min_samples_leaf=min_samples_leaf,
-                    random_state=random_state
-                )
-                model.fit(X_train, y_train)
-                
-                y_pred = model.predict(X_test)
-                try:
-                    y_prob = model.predict_proba(X_test)
-                except Exception:
-                    y_prob = None
-                
-                st.success("✅ Modelo entrenado exitosamente")
-                display_results(y_test, y_pred, y_prob, model.classes_)
+                # Usar regressor o classifier según el tipo de variable objetivo
+                if is_numeric_target:
+                    # Para regresión, usamos diferentes parámetros
+                    model = DecisionTreeRegressor(
+                        criterion="squared_error",  # Criterio para regresión
+                        max_depth=max_depth,
+                        min_samples_split=min_samples_split,
+                        min_samples_leaf=min_samples_leaf,
+                        random_state=random_state
+                    )
+                    model.fit(X_train, y_train)
+                    
+                    y_pred = model.predict(X_test)
+                    y_prob = None  # No hay probabilidades en regresión
+                    
+                    st.success("✅ Modelo de regresión entrenado exitosamente")
+                    display_regression_results(y_test, y_pred)
+                else:
+                    # Para clasificación, verificamos que haya suficientes clases
+                    if len(np.unique(y_train)) < 2:
+                        st.error("❌ El conjunto de entrenamiento debe tener al menos 2 clases diferentes")
+                        return
+                    
+                    model = DecisionTreeClassifier(
+                        criterion=criterion,
+                        max_depth=max_depth,
+                        min_samples_split=min_samples_split,
+                        min_samples_leaf=min_samples_leaf,
+                        random_state=random_state
+                    )
+                    model.fit(X_train, y_train)
+                    
+                    y_pred = model.predict(X_test)
+                    try:
+                        y_prob = model.predict_proba(X_test)
+                    except Exception:
+                        y_prob = None
+                    
+                    st.success("✅ Modelo de clasificación entrenado exitosamente")
+                    display_classification_results(y_test, y_pred, y_prob, model.classes_)
         
         except Exception as e:
             st.error(f"❌ Error al entrenar el modelo: {str(e)}")
             st.write("Sugerencia: Verifica la variable objetivo, ajusta los hiperparámetros o revisa las variables predictoras.")
 
-def display_results(y_test, y_pred, y_prob, classes):
-    st.subheader("Resultados de la Evaluación")
+def display_regression_results(y_test, y_pred):
+    """Muestra los resultados para modelos de regresión"""
+    st.subheader("Resultados de la Evaluación (Regresión)")
+    
+    # Calcular métricas de regresión
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+    
+    # Mostrar métricas en una tabla
+    metrics_df = pd.DataFrame({
+        'Métrica': ['Error Cuadrático Medio (MSE)', 'Raíz del Error Cuadrático Medio (RMSE)', 
+                   'Error Absoluto Medio (MAE)', 'Coeficiente de Determinación (R²)'],
+        'Valor': [mse, rmse, mae, r2]
+    })
+    
+    st.write("**Métricas de Evaluación:**")
+    st.dataframe(metrics_df)
+    
+    # Visualización de predicciones vs valores reales
+    st.write("**Predicciones vs Valores Reales:**")
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(y_test, y_pred, alpha=0.5)
+    
+    # Añadir línea de referencia perfecta
+    min_val = min(y_test.min(), y_pred.min())
+    max_val = max(y_test.max(), y_pred.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--')
+    
+    ax.set_xlabel('Valores Reales')
+    ax.set_ylabel('Predicciones')
+    ax.set_title('Comparación de Predicciones vs Valores Reales')
+    
+    # Añadir texto con métricas
+    ax.text(0.05, 0.95, f'R² = {r2:.4f}\nRMSE = {rmse:.4f}', 
+            transform=ax.transAxes, fontsize=12,
+            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    st.pyplot(fig)
+    
+    # Histograma de residuos
+    residuals = y_test - y_pred
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.hist(residuals, bins=30, alpha=0.7, color='skyblue', edgecolor='black')
+    ax.axvline(x=0, color='red', linestyle='--')
+    ax.set_xlabel('Residuos')
+    ax.set_ylabel('Frecuencia')
+    ax.set_title('Distribución de Residuos')
+    
+    st.pyplot(fig)
+
+def display_classification_results(y_test, y_pred, y_prob, classes):
+    """Muestra los resultados para modelos de clasificación"""
+    st.subheader("Resultados de la Evaluación (Clasificación)")
     
     # Determinar el tipo de problema
     n_classes = len(classes)

@@ -4,8 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier, BaggingClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier, BaggingClassifier,
+    RandomForestRegressor, AdaBoostRegressor, GradientBoostingRegressor, BaggingRegressor
+)
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import label_binarize
 
 def ensemble_models_module(df):
@@ -129,6 +133,99 @@ def ensemble_models_module(df):
             return
         elif len(unique_values) > 10:
             st.warning("⚠️ La variable objetivo tiene muchos valores únicos. Considera si es apropiado para clasificación.")
+            
+        # Opciones para manejar variables numéricas
+        st.subheader("Opciones para variable objetivo numérica")
+        numeric_option = st.radio(
+            "¿Cómo deseas manejar la variable objetivo numérica?",
+            ["Discretizar en intervalos para clasificación", "Usar modelo de regresión"],
+            key="numeric_option_ensemble"
+        )
+        
+        if numeric_option == "Discretizar en intervalos para clasificación":
+            # Opciones de discretización
+            discretize_method = st.selectbox(
+                "Método de discretización:",
+                ["Intervalos iguales", "Cuantiles", "Personalizado"],
+                key="discretize_method_ensemble"
+            )
+            
+            if discretize_method == "Intervalos iguales":
+                n_bins = st.slider("Número de intervalos:", 2, 10, 4, key="n_bins_equal_ensemble")
+                # Discretizar en intervalos iguales
+                bins = np.linspace(y.min(), y.max(), n_bins + 1)
+                labels = [f'{bins[i]:.2f}-{bins[i+1]:.2f}' for i in range(len(bins)-1)]
+                y_discretized = pd.cut(y, bins=bins, labels=labels, include_lowest=True)
+                
+                # Mostrar distribución de clases
+                class_counts = pd.Series(y_discretized).value_counts().sort_index()
+                st.write("Distribución de clases después de discretización:")
+                st.bar_chart(class_counts)
+                
+                # Reemplazar la variable objetivo con la versión discretizada
+                y, uniques = pd.factorize(y_discretized)
+                st.success(f"✅ Variable objetivo discretizada en {n_bins} intervalos iguales")
+                is_numeric_target = False
+                
+            elif discretize_method == "Cuantiles":
+                n_bins = st.slider("Número de cuantiles:", 2, 10, 4, key="n_bins_quantile_ensemble")
+                # Discretizar por cuantiles
+                y_discretized = pd.qcut(y, q=n_bins, labels=False)
+                
+                # Mostrar distribución de clases
+                class_counts = pd.Series(y_discretized).value_counts().sort_index()
+                st.write("Distribución de clases después de discretización:")
+                st.bar_chart(class_counts)
+                
+                # Reemplazar la variable objetivo con la versión discretizada
+                y = y_discretized
+                st.success(f"✅ Variable objetivo discretizada en {n_bins} cuantiles")
+                is_numeric_target = False
+                
+            elif discretize_method == "Personalizado":
+                # Permitir al usuario definir puntos de corte personalizados
+                min_val = float(y.min())
+                max_val = float(y.max())
+                
+                st.write(f"Rango de valores: {min_val:.2f} a {max_val:.2f}")
+                
+                # Entrada de texto para puntos de corte
+                cutpoints_text = st.text_input(
+                    "Puntos de corte (separados por coma):",
+                    value=f"{min_val},{(min_val+max_val)/2:.2f},{max_val}",
+                    key="custom_cutpoints_ensemble"
+                )
+                
+                try:
+                    # Convertir texto a lista de puntos de corte
+                    cutpoints = [float(x.strip()) for x in cutpoints_text.split(",")]
+                    cutpoints = sorted(list(set(cutpoints)))  # Eliminar duplicados y ordenar
+                    
+                    if len(cutpoints) < 2:
+                        st.error("❌ Se necesitan al menos 2 puntos de corte")
+                    else:
+                        # Asegurarse de que los puntos de corte cubran todo el rango
+                        if cutpoints[0] > min_val:
+                            cutpoints.insert(0, min_val)
+                        if cutpoints[-1] < max_val:
+                            cutpoints.append(max_val)
+                        
+                        # Crear etiquetas y discretizar
+                        labels = [f'{cutpoints[i]:.2f}-{cutpoints[i+1]:.2f}' for i in range(len(cutpoints)-1)]
+                        y_discretized = pd.cut(y, bins=cutpoints, labels=labels, include_lowest=True)
+                        
+                        # Mostrar distribución de clases
+                        class_counts = pd.Series(y_discretized).value_counts().sort_index()
+                        st.write("Distribución de clases después de discretización:")
+                        st.bar_chart(class_counts)
+                        
+                        # Reemplazar la variable objetivo con la versión discretizada
+                        y, uniques = pd.factorize(y_discretized)
+                        st.success(f"✅ Variable objetivo discretizada con puntos de corte personalizados")
+                        is_numeric_target = False
+                        
+                except Exception as e:
+                    st.error(f"❌ Error al procesar puntos de corte: {str(e)}")
 
     # Distribución de clases después de limpieza
     class_counts = pd.Series(y).value_counts()
@@ -233,7 +330,7 @@ def ensemble_models_module(df):
     
     # Entrenamiento
     if st.button("Entrenar y Comparar Modelos", type="primary"):
-        results = train_models(models_config, X_train, y_train, X_test, y_test, random_state)
+        results = train_models(models_config, X_train, y_train, X_test, y_test, random_state, is_numeric_target)
         if results:
             st.session_state.ensemble_results = results
             st.session_state.ensemble_y_test = y_test
@@ -288,29 +385,50 @@ def configure_bagging():
         max_samples = st.slider("Máximo samples:", 0.1, 1.0, 1.0, 0.1, key="bag_max_samples")
     return {"n_estimators": n_estimators, "max_samples": max_samples}
 
-def train_models(models_config, X_train, y_train, X_test, y_test, random_state):
+def train_models(models_config, X_train, y_train, X_test, y_test, random_state, is_numeric_target=False):
     results = {}
     for model_name, config in models_config.items():
         with st.spinner(f"Entrenando {model_name}..."):
             try:
-                if model_name == "Random Forest":
-                    model = RandomForestClassifier(**config, random_state=random_state)
-                elif model_name == "AdaBoost":
-                    model = AdaBoostClassifier(**config, random_state=random_state)
-                elif model_name == "Gradient Boosting":
-                    model = GradientBoostingClassifier(**config, random_state=random_state)
-                elif model_name == "Bagging":
-                    model = BaggingClassifier(**config, random_state=random_state)
+                # Seleccionar el modelo adecuado según el tipo de variable objetivo
+                if is_numeric_target:
+                    # Modelos de regresión para variables numéricas
+                    if model_name == "Random Forest":
+                        model = RandomForestRegressor(**config, random_state=random_state)
+                    elif model_name == "AdaBoost":
+                        model = AdaBoostRegressor(**config, random_state=random_state)
+                    elif model_name == "Gradient Boosting":
+                        model = GradientBoostingRegressor(**config, random_state=random_state)
+                    elif model_name == "Bagging":
+                        model = BaggingRegressor(**config, random_state=random_state)
+                else:
+                    # Modelos de clasificación para variables categóricas
+                    if model_name == "Random Forest":
+                        model = RandomForestClassifier(**config, random_state=random_state)
+                    elif model_name == "AdaBoost":
+                        model = AdaBoostClassifier(**config, random_state=random_state)
+                    elif model_name == "Gradient Boosting":
+                        model = GradientBoostingClassifier(**config, random_state=random_state)
+                    elif model_name == "Bagging":
+                        model = BaggingClassifier(**config, random_state=random_state)
 
                 model.fit(X_train, y_train)
                 y_pred = model.predict(X_test)
-                y_prob = model.predict_proba(X_test) if hasattr(model, "predict_proba") else None
-
-                results[model_name] = {
-                    "y_pred": y_pred,
-                    "y_prob": y_prob,
-                    "classes": model.classes_
-                }
+                
+                # Solo los modelos de clasificación tienen predict_proba y classes_
+                if is_numeric_target:
+                    results[model_name] = {
+                        "y_pred": y_pred,
+                        "model": model
+                    }
+                else:
+                    y_prob = model.predict_proba(X_test) if hasattr(model, "predict_proba") else None
+                    results[model_name] = {
+                        "y_pred": y_pred,
+                        "y_prob": y_prob,
+                        "classes": model.classes_
+                    }
+                    
                 st.success(f"✅ {model_name} entrenado exitosamente")
 
             except Exception as e:
@@ -322,58 +440,176 @@ def display_comparison_results(results, y_test, is_numeric_target):
     st.subheader("Comparación de Modelos")
     
     comparison_data = []
-    for model_name, result in results.items():
-        report = classification_report(y_test, result["y_pred"], output_dict=True)
-        accuracy = report['accuracy']
-        weighted_avg = report['weighted avg']
-        comparison_data.append({
-            "Modelo": model_name,
-            "Accuracy": accuracy,
-            "Recall": weighted_avg['recall'],
-            "F1-Score": weighted_avg['f1-score']
+    
+    if is_numeric_target:
+        # Métricas para modelos de regresión
+        for model_name, result in results.items():
+            y_pred = result["y_pred"]
+            mse = mean_squared_error(y_test, y_pred)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            
+            comparison_data.append({
+                "Modelo": model_name,
+                "MSE": mse,
+                "RMSE": rmse,
+                "MAE": mae,
+                "R²": r2
+            })
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        
+        # Definir explícitamente las columnas numéricas para el resaltado
+        numeric_columns = ['MSE', 'RMSE', 'MAE', 'R²']
+        
+        # Para MSE, RMSE y MAE, los valores más bajos son mejores
+        min_better = ['MSE', 'RMSE', 'MAE']
+        # Para R², los valores más altos son mejores
+        max_better = ['R²']
+        
+        # Aplicar formato y resaltado
+        styled_df = comparison_df.style.format({
+            'MSE': '{:.3f}', 
+            'RMSE': '{:.3f}', 
+            'MAE': '{:.3f}',
+            'R²': '{:.3f}'
         })
-    
-    comparison_df = pd.DataFrame(comparison_data)
-    
-    # Definir explícitamente las columnas numéricas para el resaltado
-    numeric_columns = ['Accuracy', 'Recall', 'F1-Score']
-    
-    # Aplicar formato y resaltado SOLO a las columnas numéricas
-    styled_df = comparison_df.style.format({
-        'Accuracy': '{:.3f}', 
-        'Recall': '{:.3f}', 
-        'F1-Score': '{:.3f}'
-    }).highlight_max(
-        subset=numeric_columns, 
-        color='lightgreen',
-        axis=0  # Buscar máximo por columna
-    ).highlight_min(
-        subset=numeric_columns, 
-        color='#ffcccb',
-        axis=0  # Buscar mínimo por columna
-    )
+        
+        # Resaltar los mejores valores (mínimos para errores, máximos para R²)
+        for col in min_better:
+            styled_df = styled_df.highlight_min(
+                subset=[col], 
+                color='lightgreen',
+                axis=0
+            )
+        
+        for col in max_better:
+            styled_df = styled_df.highlight_max(
+                subset=[col], 
+                color='lightgreen',
+                axis=0
+            )
+    else:
+        # Métricas para modelos de clasificación
+        for model_name, result in results.items():
+            report = classification_report(y_test, result["y_pred"], output_dict=True)
+            accuracy = report['accuracy']
+            weighted_avg = report['weighted avg']
+            comparison_data.append({
+                "Modelo": model_name,
+                "Accuracy": accuracy,
+                "Recall": weighted_avg['recall'],
+                "F1-Score": weighted_avg['f1-score']
+            })
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        
+        # Definir explícitamente las columnas numéricas para el resaltado
+        numeric_columns = ['Accuracy', 'Recall', 'F1-Score']
+        
+        # Aplicar formato y resaltado SOLO a las columnas numéricas
+        styled_df = comparison_df.style.format({
+            'Accuracy': '{:.3f}', 
+            'Recall': '{:.3f}', 
+            'F1-Score': '{:.3f}'
+        }).highlight_max(
+            subset=numeric_columns, 
+            color='lightgreen',
+            axis=0  # Buscar máximo por columna
+        ).highlight_min(
+            subset=numeric_columns, 
+            color='#ffcccb',
+            axis=0  # Buscar mínimo por columna
+        )
     
     st.dataframe(styled_df, use_container_width=True)
 
     # Resultados individuales
     for model_name, result in results.items():
         with st.expander(f"Resultados detallados - {model_name}"):
-            show_model_results(
-                y_test, 
-                result["y_pred"], 
-                result["y_prob"], 
-                result["classes"], 
-                model_name, 
-                is_numeric_target
-            )
+            if is_numeric_target:
+                show_regression_results(
+                    y_test, 
+                    result["y_pred"], 
+                    model_name
+                )
+            else:
+                show_model_results(
+                    y_test, 
+                    result["y_pred"], 
+                    result["y_prob"], 
+                    result["classes"], 
+                    model_name, 
+                    is_numeric_target
+                )
+
+def show_regression_results(y_test, y_pred, model_name):
+    """Muestra resultados para modelos de regresión"""
+    tab1, tab2 = st.tabs(["Métricas de Error", "Visualizaciones"])
+    
+    with tab1:
+        # Calcular métricas
+        mse = mean_squared_error(y_test, y_pred)
+        rmse = np.sqrt(mse)
+        mae = mean_absolute_error(y_test, y_pred)
+        r2 = r2_score(y_test, y_pred)
+        
+        # Mostrar métricas en formato de tabla
+        metrics_df = pd.DataFrame({
+            'Métrica': ['MSE', 'RMSE', 'MAE', 'R²'],
+            'Valor': [mse, rmse, mae, r2]
+        })
+        
+        st.table(metrics_df.style.format({'Valor': '{:.4f}'}))
+        
+        # Explicaciones de las métricas
+        with st.expander("Explicación de las métricas"):
+            st.markdown("""
+            - **MSE (Error Cuadrático Medio)**: Promedio de los errores al cuadrado. Penaliza errores grandes.
+            - **RMSE (Raíz del Error Cuadrático Medio)**: Raíz cuadrada del MSE. Está en las mismas unidades que la variable objetivo.
+            - **MAE (Error Absoluto Medio)**: Promedio de los errores absolutos. Menos sensible a valores atípicos que MSE.
+            - **R² (Coeficiente de Determinación)**: Proporción de la varianza explicada por el modelo. 1 es perfecto, 0 es igual al modelo base, negativo es peor que el modelo base.
+            """)
+    
+    with tab2:
+        # Crear figura con dos subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        
+        # Gráfico de dispersión: Valores reales vs predicciones
+        ax1.scatter(y_test, y_pred, alpha=0.5)
+        ax1.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+        ax1.set_xlabel('Valores Reales')
+        ax1.set_ylabel('Predicciones')
+        ax1.set_title(f'{model_name}: Predicciones vs Valores Reales')
+        
+        # Histograma de residuos
+        residuos = y_test - y_pred
+        ax2.hist(residuos, bins=30, alpha=0.7, color='skyblue', edgecolor='black')
+        ax2.axvline(x=0, color='red', linestyle='--')
+        ax2.set_xlabel('Residuos')
+        ax2.set_ylabel('Frecuencia')
+        ax2.set_title('Distribución de Residuos')
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+        
+        # Explicación de los gráficos
+        with st.expander("Interpretación de los gráficos"):
+            st.markdown("""
+            **Predicciones vs Valores Reales**:
+            - Los puntos deben estar cerca de la línea roja diagonal para un buen modelo.
+            - Puntos dispersos indican mayor error en las predicciones.
+            
+            **Distribución de Residuos**:
+            - Idealmente debe ser simétrica alrededor de cero (línea roja).
+            - Una distribución sesgada puede indicar que el modelo tiene un sesgo sistemático.
+            - Valores extremos pueden indicar outliers o casos donde el modelo tiene dificultades.
+            """)
 
 def show_model_results(y_test, y_pred, y_prob, classes, model_name, is_numeric_target):
-    # Si la variable objetivo es numérica, mostrar solo 2 pestañas
-    if is_numeric_target:
-        tab1, tab2 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación"])
-    else:
-        # Para variables categóricas, mostrar todas las pestañas
-        tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC y AUC"])
+    # Para variables categóricas, mostrar todas las pestañas
+    tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC y AUC"])
 
     with tab1:
         show_confusion_matrix(y_test, y_pred, classes, model_name)
@@ -381,10 +617,8 @@ def show_model_results(y_test, y_pred, y_prob, classes, model_name, is_numeric_t
     with tab2:
         show_classification_report(y_test, y_pred, model_name)
     
-    # Solo mostrar pestaña de ROC si NO es variable numérica
-    if not is_numeric_target:
-        with tab3:
-            show_roc_curve(y_test, y_prob, classes, model_name)
+    with tab3:
+        show_roc_curve(y_test, y_prob, classes, model_name)
 
 def show_confusion_matrix(y_test, y_pred, classes, model_name):
     """Muestra matriz de confusión con tamaño de fuente ajustado"""
