@@ -217,7 +217,7 @@ def ensemble_models_module(df):
         st.subheader("Bagging")
         with st.expander("Explicación de Bagging"):
             st.markdown("""
-            **Bagging** (Bootstrap Aggregating) es una técnica que reduce la varianza de los algoritmos de aprendizaje.
+            **Bagging** (Bootstrap Aggregating) es una técnica que reduces la varianza de los algoritmos de aprendizaje.
             
             **Cómo funciona:**
             1. Crea múltiples subconjuntos de datos mediante muestreo con reemplazo (bootstrapping)
@@ -237,7 +237,7 @@ def ensemble_models_module(df):
         if results:
             st.session_state.ensemble_results = results
             st.session_state.ensemble_y_test = y_test
-            st.session_state.is_numeric_target = is_numeric_target  # Guardar si es numérica
+            st.session_state.ensemble_classes = np.unique(y)  # Guardar clases únicas
             st.success("✅ Modelos entrenados exitosamente")
         else:
             st.error("❌ No se pudo entrenar ningún modelo. Revisa parámetros y datos.")
@@ -247,7 +247,7 @@ def ensemble_models_module(df):
         display_comparison_results(
             st.session_state.ensemble_results, 
             st.session_state.ensemble_y_test,
-            st.session_state.is_numeric_target
+            st.session_state.ensemble_classes
         )
 
 def configure_random_forest():
@@ -318,7 +318,7 @@ def train_models(models_config, X_train, y_train, X_test, y_test, random_state):
     
     return results
 
-def display_comparison_results(results, y_test, is_numeric_target):
+def display_comparison_results(results, y_test, classes):
     st.subheader("Comparación de Modelos")
     
     comparison_data = []
@@ -363,17 +363,18 @@ def display_comparison_results(results, y_test, is_numeric_target):
                 result["y_pred"], 
                 result["y_prob"], 
                 result["classes"], 
-                model_name, 
-                is_numeric_target
+                model_name
             )
 
-def show_model_results(y_test, y_pred, y_prob, classes, model_name, is_numeric_target):
-    # Si la variable objetivo es numérica, mostrar solo 2 pestañas
-    if is_numeric_target:
-        tab1, tab2 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación"])
-    else:
-        # Para variables categóricas, mostrar todas las pestañas
+def show_model_results(y_test, y_pred, y_prob, classes, model_name):
+    # Determinar si es dicotómico (2 clases)
+    is_dichotomous = len(classes) == 2
+    
+    # Crear pestañas según si es dicotómico
+    if is_dichotomous and y_prob is not None:
         tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC y AUC"])
+    else:
+        tab1, tab2 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación"])
 
     with tab1:
         show_confusion_matrix(y_test, y_pred, classes, model_name)
@@ -381,8 +382,8 @@ def show_model_results(y_test, y_pred, y_prob, classes, model_name, is_numeric_t
     with tab2:
         show_classification_report(y_test, y_pred, model_name)
     
-    # Solo mostrar pestaña de ROC si NO es variable numérica
-    if not is_numeric_target:
+    # Solo mostrar pestaña de ROC si es dicotómico
+    if is_dichotomous and y_prob is not None:
         with tab3:
             show_roc_curve(y_test, y_prob, classes, model_name)
 
@@ -420,48 +421,164 @@ def show_classification_report(y_test, y_pred, model_name):
     report = classification_report(y_test, y_pred, output_dict=True)
     report_df = pd.DataFrame(report).transpose()
     accuracy = report['accuracy']
+    macro_avg = report.get('macro avg', {})
     weighted_avg = report.get('weighted avg', {})
-
-    st.write("**Métricas Principales:**")
+    
+    # Obtener métricas por clase (excluyendo promedios)
+    class_metrics = {}
+    for key in report.keys():
+        if key not in ['accuracy', 'macro avg', 'weighted avg'] and isinstance(report[key], dict):
+            class_metrics[key] = report[key]
+    
+    # MÉTRICAS PRINCIPALES COMPACTAS
+    st.write("**Métricas Principales**")
+    
+    # Fila de métricas básicas
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Exactitud", f"{accuracy:.3f}")
-    col2.metric("Precisión", f"{weighted_avg.get('precision', 0):.3f}")
-    col3.metric("Recall", f"{weighted_avg.get('recall', 0):.3f}")
-    col4.metric("F1-Score", f"{weighted_avg.get('f1-score', 0):.3f}")
+    with col1:
+        st.metric(
+            label="Exactitud",
+            value=f"{accuracy:.3f}",
+            help="Porcentaje total de predicciones correctas"
+        )
+    
+    with col2:
+        st.metric(
+            label="Precisión",
+            value=f"{weighted_avg.get('precision', 0):.3f}",
+            help="Capacidad del modelo para no predecir falsos positivos"
+        )
+    
+    with col3:
+        st.metric(
+            label="Recall", 
+            value=f"{weighted_avg.get('recall', 0):.3f}",
+            help="Capacidad del modelo para encontrar todos los positivos"
+        )
+    
+    with col4:
+        st.metric(
+            label="F1-Score",
+            value=f"{weighted_avg.get('f1-score', 0):.3f}",
+            help="Balance entre Precisión y Recall"
+        )
 
-    st.write("**Métricas por Clase:**")
-    st.dataframe(report_df.style.format({
-        'precision': '{:.3f}', 'recall': '{:.3f}',
-        'f1-score': '{:.3f}', 'support': '{:.0f}'
-    }), use_container_width=True)
+    # ANÁLISIS COMPARATIVO DISCRETO
+    with st.expander("🔍 **Análisis Comparativo (Macro vs Ponderado)**", expanded=False):
+        # Calcular diferencias
+        diff_precision = weighted_avg.get('precision', 0) - macro_avg.get('precision', 0)
+        diff_recall = weighted_avg.get('recall', 0) - macro_avg.get('recall', 0)
+        diff_f1 = weighted_avg.get('f1-score', 0) - macro_avg.get('f1-score', 0)
+        
+        # Tabla comparativa compacta
+        comp_data = {
+            'Métrica': ['Precisión', 'Recall', 'F1-Score'],
+            'Macro': [
+                f"{macro_avg.get('precision', 0):.3f}",
+                f"{macro_avg.get('recall', 0):.3f}",
+                f"{macro_avg.get('f1-score', 0):.3f}"
+            ],
+            'Ponderado': [
+                f"{weighted_avg.get('precision', 0):.3f}",
+                f"{weighted_avg.get('recall', 0):.3f}",
+                f"{weighted_avg.get('f1-score', 0):.3f}"
+            ],
+            'Diferencia': [
+                f"{diff_precision:+.3f}",
+                f"{diff_recall:+.3f}", 
+                f"{diff_f1:+.3f}"
+            ]
+        }
+        
+        comp_df = pd.DataFrame(comp_data)
+        st.dataframe(comp_df, use_container_width=True, hide_index=True)
+        
+        # Interpretación mínima
+        is_balanced = all(abs(diff) < 0.01 for diff in [diff_precision, diff_recall, diff_f1])
+        if is_balanced:
+            st.info("📊 **Dataset balanceado** - Las métricas Macro y Ponderado son similares")
+        else:
+            st.warning("⚖️ **Dataset desbalanceado** - Considerar el contexto para elegir métricas")
 
+    # MÉTRICAS POR CLASE
+    if class_metrics and len(class_metrics) > 1:
+        st.write("**Métricas por Clase**")
+        
+        class_metrics_df = pd.DataFrame(class_metrics).transpose()
+        
+        # Solo tabla de métricas por clase (sin gráfico)
+        class_metrics_display = class_metrics_df.copy()
+        class_metrics_display.index.name = 'Clase'
+        class_metrics_display = class_metrics_display.reset_index()
+        
+        st.dataframe(
+            class_metrics_display.style.format({
+                'precision': '{:.3f}',
+                'recall': '{:.3f}', 
+                'f1-score': '{:.3f}',
+                'support': '{:.0f}'
+            }),
+            use_container_width=True,
+            height=min(300, 100 + len(class_metrics_df) * 35)
+        )
+    
+    elif class_metrics and len(class_metrics) == 1:
+        # Caso binario simple
+        st.info("Clasificación binaria")
+        class_name = list(class_metrics.keys())[0]
+        metrics = class_metrics[class_name]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Precisión", f"{metrics['precision']:.3f}")
+        with col2:
+            st.metric("Recall", f"{metrics['recall']:.3f}")
+        with col3:
+            st.metric("F1-Score", f"{metrics['f1-score']:.3f}")
+            
 def show_roc_curve(y_test, y_prob, classes, model_name):
-    if y_prob is not None and len(classes) > 1:
+    if y_prob is not None and len(classes) == 2:
         try:
-            n_classes = len(classes)
+            # Crear mapeo de clases a números para y_test
+            class_mapping = {class_name: i for i, class_name in enumerate(classes)}
+            y_test_numeric = np.array([class_mapping[label] for label in y_test])
+            
+            # Calcular curva ROC y AUC
+            fpr, tpr, _ = roc_curve(y_test_numeric, y_prob[:, 1])
+            roc_auc = auc(fpr, tpr)
+            
+            # Crear gráfico
             fig, ax = plt.subplots(figsize=(10, 6))
-
-            if n_classes == 2:
-                fpr, tpr, _ = roc_curve(y_test, y_prob[:, 1])
-                roc_auc = auc(fpr, tpr)
-                ax.plot(fpr, tpr, lw=2, label=f"AUC = {roc_auc:.3f}")
-            else:
-                y_test_bin = label_binarize(y_test, classes=classes)
-                colors = sns.color_palette("husl", n_classes)
-                for i, color in zip(range(n_classes), colors):
-                    fpr, tpr, _ = roc_curve(y_test_bin[:, i], y_prob[:, i])
-                    roc_auc = auc(fpr, tpr)
-                    ax.plot(fpr, tpr, color=color, lw=2,
-                            label=f'Clase {classes[i]} (AUC = {roc_auc:.3f})')
-
-            ax.plot([0, 1], [0, 1], 'k--', label='Línea base')
-            ax.set_xlabel("Tasa de Falsos Positivos")
-            ax.set_ylabel("Tasa de Verdaderos Positivos")
-            ax.set_title(f"Curva ROC - {model_name}")
+            ax.plot(fpr, tpr, color='darkorange', lw=2, label=f'Curva ROC (AUC = {roc_auc:.3f})')
+            ax.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Línea base (AUC = 0.5)')
+            ax.set_xlim([0.0, 1.0])
+            ax.set_ylim([0.0, 1.05])
+            ax.set_xlabel('Tasa de Falsos Positivos (FPR)')
+            ax.set_ylabel('Tasa de Verdaderos Positivos (TPR)')
+            ax.set_title(f'Curva ROC - {model_name}')
             ax.legend(loc="lower right")
             ax.grid(True, alpha=0.3)
+            
             st.pyplot(fig)
+            
+            # Mostrar métricas AUC
+            st.metric("Área bajo la curva (AUC)", f"{roc_auc:.4f}")
+            
+            # Interpretación del AUC
+            if roc_auc >= 0.9:
+                interpretation = "Excelente poder discriminativo"
+            elif roc_auc >= 0.8:
+                interpretation = "Muy buen poder discriminativo" 
+            elif roc_auc >= 0.7:
+                interpretation = "Poder discriminativo aceptable"
+            elif roc_auc >= 0.6:
+                interpretation = "Poder discriminativo pobre"
+            else:
+                interpretation = "No mejor que aleatorio"
+                
+            st.write(f"**Interpretación:** {interpretation}")
+            
         except Exception as e:
             st.warning(f"⚠️ No se pudo generar la curva ROC: {str(e)}")
     else:
-        st.info("ℹ️ La curva ROC no está disponible para este modelo")
+        st.info("ℹ️ La curva ROC solo está disponible para problemas de clasificación binaria (2 clases)")

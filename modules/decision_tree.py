@@ -293,41 +293,75 @@ def display_results(y_test, y_pred, y_prob, classes):
                 if key not in ['accuracy', 'macro avg', 'weighted avg'] and isinstance(report[key], dict):
                     class_metrics[key] = report[key]
             
-            # Métricas Globales
-            st.write("**Métricas Globales del Modelo**")
+            # MÉTRICAS PRINCIPALES COMPACTAS
+            st.write("**Métricas Principales**")
             
+            # Fila 1: Métricas básicas
             col1, col2, col3, col4 = st.columns(4)
-            
             with col1:
                 st.metric(
-                    label="Exactitud (Accuracy)",
+                    label="Exactitud",
                     value=f"{accuracy:.3f}",
                     help="Porcentaje total de predicciones correctas"
                 )
             
             with col2:
-                precision_avg = weighted_avg.get('precision', macro_avg.get('precision', 0))
                 st.metric(
-                    label="Precisión Promedio",
-                    value=f"{precision_avg:.3f}",
+                    label="Precisión",
+                    value=f"{weighted_avg.get('precision', 0):.3f}",
                     help="Capacidad del modelo para no predecir falsos positivos"
                 )
             
             with col3:
-                recall_avg = weighted_avg.get('recall', macro_avg.get('recall', 0))
                 st.metric(
-                    label="Recall Promedio", 
-                    value=f"{recall_avg:.3f}",
+                    label="Recall", 
+                    value=f"{weighted_avg.get('recall', 0):.3f}",
                     help="Capacidad del modelo para encontrar todos los positivos"
                 )
             
             with col4:
-                f1_avg = weighted_avg.get('f1-score', macro_avg.get('f1-score', 0))
                 st.metric(
-                    label="F1-Score Promedio",
-                    value=f"{f1_avg:.3f}",
+                    label="F1-Score",
+                    value=f"{weighted_avg.get('f1-score', 0):.3f}",
                     help="Balance entre Precisión y Recall"
                 )
+
+            # ANÁLISIS COMPARATIVO DISCRETO
+            with st.expander("🔍 **Análisis Comparativo (Macro vs Ponderado)**", expanded=False):
+                # Calcular diferencias
+                diff_precision = weighted_avg.get('precision', 0) - macro_avg.get('precision', 0)
+                diff_recall = weighted_avg.get('recall', 0) - macro_avg.get('recall', 0)
+                diff_f1 = weighted_avg.get('f1-score', 0) - macro_avg.get('f1-score', 0)
+                
+                # Tabla comparativa compacta
+                comp_data = {
+                    'Métrica': ['Precisión', 'Recall', 'F1-Score'],
+                    'Macro': [
+                        f"{macro_avg.get('precision', 0):.3f}",
+                        f"{macro_avg.get('recall', 0):.3f}",
+                        f"{macro_avg.get('f1-score', 0):.3f}"
+                    ],
+                    'Ponderado': [
+                        f"{weighted_avg.get('precision', 0):.3f}",
+                        f"{weighted_avg.get('recall', 0):.3f}",
+                        f"{weighted_avg.get('f1-score', 0):.3f}"
+                    ],
+                    'Diferencia': [
+                        f"{diff_precision:+.3f}",
+                        f"{diff_recall:+.3f}", 
+                        f"{diff_f1:+.3f}"
+                    ]
+                }
+                
+                comp_df = pd.DataFrame(comp_data)
+                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+                
+                # Interpretación mínima
+                is_balanced = all(abs(diff) < 0.01 for diff in [diff_precision, diff_recall, diff_f1])
+                if is_balanced:
+                    st.info("📊 **Dataset balanceado** - Las métricas Macro y Ponderado son similares")
+                else:
+                    st.warning("⚖️ **Dataset desbalanceado** - Considerar el contexto para elegir métricas")
 
             # Mostrar métricas por clase si hay múltiples clases
             if class_metrics and len(class_metrics) > 1:
@@ -395,23 +429,23 @@ def display_results(y_test, y_pred, y_prob, classes):
 
         else:
             st.warning("No hay datos de prueba o predicciones disponibles")
-            
+                    
     # Curva ROC y AUC solo para clasificación binaria
     if is_binary_classification and y_prob is not None:
         with tab3:
             with st.expander("Curva ROC (Receiver Operating Characteristic)"):
                 st.markdown("""
-            La **Curva ROC** es una representación gráfica que muestra la capacidad de un clasificador 
-            para diferenciar entre clases. Se basa en dos métricas:
-            
-            - **Tasa de falsos positivos (False Positive Rate - FPR):** Proporción de negativos incorrectamente clasificados como positivos.
-            - **Tasa de verdaderos positivos (True Positive Rate - TPR):** Proporción de positivos correctamente identificados.
-            
-            La curva muestra la relación entre TPR y FPR para diferentes umbrales de decisión.
-            
-            **Nota:** La curva ROC solo está disponible para problemas de clasificación binaria.
-            """)
-            
+                La **Curva ROC** es una representación gráfica que muestra la capacidad de un clasificador 
+                para diferenciar entre clases. Se basa en dos métricas:
+                
+                - **Tasa de falsos positivos (False Positive Rate - FPR):** Proporción de negativos incorrectamente clasificados como positivos.
+                - **Tasa de verdaderos positivos (True Positive Rate - TPR):** Proporción de positivos correctamente identificados.
+                
+                La curva muestra la relación entre TPR y FPR para diferentes umbrales de decisión.
+                
+                **Nota:** La curva ROC solo está disponible para problemas de clasificación binaria.
+                """)
+                
             try:
                 # --- CORRECCIÓN PRINCIPAL: Convertir y_test a numérico ---
                 # Crear mapeo de clases a números
@@ -445,8 +479,8 @@ def display_results(y_test, y_pred, y_prob, classes):
                 positive_class = classes[pos_label]
                 negative_class = classes[0]
                 ax_roc.text(0.02, 0.98, f'Clase positiva: {positive_class}\nClase negativa: {negative_class}', 
-                           transform=ax_roc.transAxes, fontsize=10, 
-                           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+                        transform=ax_roc.transAxes, fontsize=10, 
+                        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
                 
                 # Leyenda fuera del gráfico
                 ax_roc.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=10)
@@ -459,58 +493,44 @@ def display_results(y_test, y_pred, y_prob, classes):
                 plt.tight_layout(rect=[0, 0, 0.85, 1])
                 st.pyplot(fig_roc)
                 
-                with st.expander("Área bajo la curva (AUC)"):
-                    st.markdown("""
-                El **AUC** cuantifica la calidad de la curva ROC en un solo valor:
-                
-                - **0.9 - 1.0:** Excelente poder discriminativo
-                - **0.8 - 0.9:** Muy bueno
-                - **0.7 - 0.8:** Aceptable
-                - **0.6 - 0.7:** Pobre
-                - **0.5 - 0.6:** No mejor que aleatorio
-                - **< 0.5:** Peor que aleatorio
-                """)
-                        
                 # --- MOSTRAR MÉTRICAS NUMÉRICAS ---
                 st.subheader("Métricas de Evaluación AUC")
-                col1, col2, col3 = st.columns(3)
+                col1, col2 = st.columns(2)
                 with col1:
                     st.metric("AUC Score", f"{roc_auc:.4f}")
                 with col2:
-                    st.metric("Interpretación", interpretar_auc(roc_auc))
-                with col3:
-                    quality = "✅ Excelente" if roc_auc >= 0.9 else "👍 Buena" if roc_auc >= 0.8 else "⚠️ Aceptable" if roc_auc >= 0.7 else "❌ Pobre"
-                    st.metric("Calidad", quality)
+                    # Calificación simple y única
+                    if roc_auc >= 0.9:
+                        calidad = "Excelente"
+                        emoji = "✅"
+                    elif roc_auc >= 0.8:
+                        calidad = "Buena"
+                        emoji = "👍"
+                    elif roc_auc >= 0.7:
+                        calidad = "Aceptable" 
+                        emoji = "⚠️"
+                    else:
+                        calidad = "Pobre"
+                        emoji = "❌"
+                    st.metric("Calidad del Modelo", f"{emoji} {calidad}")
                 
-                # Gráfico de métricas AUC
-                fig_auc, ax_auc = plt.subplots(figsize=(8, 6))
-                
-                metrics_data = [roc_auc]
-                metric_labels = ['AUC']
-                colors = ['lightgreen' if roc_auc >= 0.7 else 'lightcoral']
-                
-                bars = ax_auc.bar(metric_labels, metrics_data, color=colors, edgecolor='black', alpha=0.8)
-                ax_auc.axhline(y=0.5, color='red', linestyle='--', alpha=0.7, label='Aleatorio')
-                ax_auc.axhline(y=0.7, color='orange', linestyle='--', alpha=0.7, label='Aceptable')
-                ax_auc.axhline(y=0.9, color='green', linestyle='--', alpha=0.7, label='Excelente')
-                ax_auc.set_ylim(0, 1.1)
-                ax_auc.set_ylabel('Valor AUC')
-                ax_auc.set_title('Métrica AUC - Clasificación Binaria')
-                ax_auc.legend()
-                
-                # Añadir valores en las barras
-                for bar, v in zip(bars, metrics_data):
-                    height = bar.get_height()
-                    ax_auc.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                            f'{v:.3f}', ha='center', va='bottom', fontweight='bold', fontsize=12)
-                
-                plt.tight_layout()
-                st.pyplot(fig_auc)
+                # Información interpretativa
+                with st.expander("Interpretación del AUC"):
+                    st.markdown("""
+                    El **AUC** cuantifica la calidad de la curva ROC en un solo valor:
+                    
+                    - **0.9 - 1.0:** Excelente poder discriminativo
+                    - **0.8 - 0.9:** Buen poder discriminativo
+                    - **0.7 - 0.8:** Aceptable poder discriminativo
+                    - **0.6 - 0.7:** Pobre poder discriminativo
+                    - **0.5 - 0.6:** No mejor que aleatorio
+                    - **< 0.5:** Peor que aleatorio
+                    """)
                         
             except Exception as e:
                 st.error(f"❌ Error al calcular las curvas ROC: {str(e)}")
                 st.info("ℹ️ Esto puede ocurrir cuando hay problemas con las probabilidades predichas o las clases objetivo")
-    
+                
     # Mensaje informativo para problemas multiclase
     elif is_multiclass_classification:
         st.info("""
@@ -524,15 +544,9 @@ def display_results(y_test, y_pred, y_prob, classes):
 
 def interpretar_auc(auc_score):
     """Función auxiliar para interpretar scores AUC"""
-    if auc_score >= 0.9:
-        return "Excelente discriminación"
-    elif auc_score >= 0.8:
-        return "Muy buena discriminación"
-    elif auc_score >= 0.7:
-        return "Discriminación aceptable"
-    elif auc_score >= 0.6:
-        return "Discriminación pobre"
-    elif auc_score >= 0.5:
-        return "No mejor que aleatorio"
-    else:
-        return "Peor que aleatorio"
+    if auc_score >= 0.9: return "Excelente"
+    if auc_score >= 0.8: return "Muy buena"
+    if auc_score >= 0.7: return "Aceptable"
+    if auc_score >= 0.6: return "Pobre"
+    if auc_score >= 0.5: return "Aleatorio"
+    return "Peor que aleatorio"
