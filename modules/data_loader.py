@@ -27,7 +27,7 @@ def display_dataset_info(df):
     st.subheader("Vista Rápida del Dataset")
     
     # Pestañas básicas
-    tab1, tab2 = st.tabs(["Vista Previa", "Info Básica"])
+    tab1, tab2 = st.tabs(["Vista Previa", "Información Básica"])
     
     with tab1:
         st.write("**Muestra del Dataset:**")

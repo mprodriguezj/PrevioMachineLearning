@@ -266,7 +266,8 @@ def perform_eda(df):
         st.dataframe(
             dtype_df.style.format({'% Nulos': '{:.1f}%'}), 
             use_container_width=True,
-            height=400
+            height=400,
+            hide_index=True  # Elimina la columna de índice
         )
         
         # Estadísticas descriptivas básicas
@@ -285,7 +286,11 @@ def perform_eda(df):
         
         # Aplicar formato sin highlight_null que causa error
         styled_missing_df = missing_df.style.format({'Porcentaje Nulos': '{:.1f}%'})
-        st.dataframe(styled_missing_df, use_container_width=True)
+        st.dataframe(
+            styled_missing_df, 
+            use_container_width=True,
+            hide_index=True  # Elimina la columna de índice
+        )
         
         # Gráfico de valores nulos
         if missing_df['Valores Nulos'].sum() > 0:
@@ -293,7 +298,7 @@ def perform_eda(df):
             if len(missing_plot_df) > 0:
                 fig, ax = plt.subplots(figsize=(12, 6))
                 bars = ax.bar(missing_plot_df['Columna'], missing_plot_df['Porcentaje Nulos'], 
-                             color='red', alpha=0.7)
+                            color='red', alpha=0.7)
                 ax.set_xlabel('Columnas')
                 ax.set_ylabel('Porcentaje de Valores Nulos (%)')
                 ax.set_title('Distribución de Valores Nulos por Columna')

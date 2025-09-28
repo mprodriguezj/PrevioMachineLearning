@@ -106,10 +106,6 @@ def data_loader_page():
         # Mostrar el dataset actual si ya está cargado
         st.success("✅ Dataset cargado - Puedes cambiar al módulo de análisis")
         display_dataset_info(st.session_state.df)
-        
-        # Opción para cargar nuevo dataset desde esta página también
-        if st.button("🔄 Cargar Nuevo Dataset desde aquí"):
-            change_dataset()
 
 def eda_page():
     st.header("🔍 Análisis Exploratorio de Datos")
