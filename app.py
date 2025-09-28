@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
 import pandas as pd
+
 from modules.data_loader import load_data, display_dataset_info
 from modules.eda import perform_eda
 from modules.decision_tree import decision_tree_module
@@ -38,9 +39,9 @@ def main():
     page_options = ["Carga de Datos", "Análisis Exploratorio", "Árbol de Decisión", "Modelos de Ensamble"]
     page = st.sidebar.radio("Selecciona un módulo:", page_options)
     
-    # BOTÓN SAMBAIR DATASET - Añadido en el sidebar
+    # BOTÓN PARA CARGAR NUEVO DATASET
     st.sidebar.markdown("---")  # Separador
-    if st.sidebar.button("🔄 Cambiar Dataset", help="Reiniciar y cargar un nuevo dataset"):
+    if st.sidebar.button("🔄 Cargar Nuevo Dataset", help="Reiniciar y cargar un nuevo dataset"):
         change_dataset()
     
     # Show current dataset info in sidebar if loaded
@@ -48,6 +49,8 @@ def main():
         st.sidebar.success("Dataset cargado")
         st.sidebar.write(f"Filas: {len(st.session_state.df)}")
         st.sidebar.write(f"Columnas: {len(st.session_state.df.columns)}")
+    else:
+        st.sidebar.info("ℹ️ Sube un dataset para comenzar")
     
     # Page routing
     if page == "Carga de Datos":
@@ -56,26 +59,25 @@ def main():
         if st.session_state.data_loaded:
             eda_page()
         else:
-            st.warning("⚠️ Por favor carga un dataset primero")
+            st.warning("⚠️ Por favor carga un dataset primero en la pestaña 'Carga de Datos'")
     elif page == "Árbol de Decisión":
         if st.session_state.data_loaded:
             decision_tree_page()
         else:
-            st.warning("⚠️ Por favor carga un dataset primero")
+            st.warning("⚠️ Por favor carga un dataset primero en la pestaña 'Carga de Datos'")
     elif page == "Modelos de Ensamble":
         if st.session_state.data_loaded:
             ensemble_models_page()
         else:
-            st.warning("⚠️ Por favor carga un dataset primero")
+            st.warning("⚠️ Por favor carga un dataset primero en la pestaña 'Carga de Datos'")
 
 def change_dataset():
-    """Función para reiniciar y cambiar el dataset"""
+    """Función para reiniciar y cargar un nuevo dataset"""
     # Reiniciar todo el estado de la sesión
     st.session_state.df = None
     st.session_state.data_loaded = False
-    st.session_state.current_page = "Carga de Datos"
     
-    # Limpiar cualquier caché o estado adicional que puedas tener
+    # Limpiar cualquier caché o estado adicional
     keys_to_remove = []
     for key in st.session_state.keys():
         if key not in ['_pages', '_last_page', '_scriptrunner']:
@@ -84,57 +86,30 @@ def change_dataset():
     for key in keys_to_remove:
         del st.session_state[key]
     
-    # Forzar redirección a la página de carga de datos
-    st.session_state.current_page = "Carga de Datos"
+    st.success("✅ Listo para cargar un nuevo dataset")
     st.rerun()
-
-def generate_sample_dataset():
-    """Función para generar un dataset de ejemplo aleatorio"""
-    try:
-        # Generar datos de ejemplo
-        np.random.seed(42)
-        n_samples = 200
-        
-        # Crear dataset con múltiples características
-        data = {
-            'edad': np.random.randint(18, 70, n_samples),
-            'ingresos': np.random.randint(20000, 100000, n_samples),
-            'score_credito': np.random.randint(300, 850, n_samples),
-            'monto_prestamo': np.random.randint(5000, 50000, n_samples),
-            'plazo_prestamo': np.random.randint(12, 60, n_samples),
-            'historial_credito': np.random.choice(['bueno', 'regular', 'malo'], n_samples, p=[0.6, 0.3, 0.1]),
-            'empleo': np.random.choice(['empleado', 'independiente', 'desempleado'], n_samples, p=[0.7, 0.2, 0.1]),
-            'educacion': np.random.choice(['bachiller', 'universitario', 'posgrado'], n_samples, p=[0.4, 0.4, 0.2]),
-            'aprobado': np.random.choice([0, 1], n_samples, p=[0.3, 0.7])  # Variable objetivo
-        }
-        
-        df = pd.DataFrame(data)
-        st.session_state.df = df
-        st.session_state.data_loaded = True
-        
-        st.sidebar.success("✅ Dataset de ejemplo generado exitosamente!")
-        st.sidebar.write(f"📊 {n_samples} muestras generadas")
-        st.sidebar.write(f"🏷️ Variable objetivo: 'aprobado'")
-        
-        # Mostrar información del dataset en la página principal
-        if st.session_state.get('current_page') == 'Carga de Datos':
-            st.success("🎲 Dataset de ejemplo 'Sambair' generado exitosamente!")
-            display_dataset_info(df)
-        
-    except Exception as e:
-        st.sidebar.error(f"❌ Error al generar dataset: {str(e)}")
 
 def data_loader_page():
     st.header("📁 Carga de Datos")
     st.session_state.current_page = "Carga de Datos"
-    df = load_data()
-    if df is not None:
-        st.session_state.df = df
-        st.session_state.data_loaded = True
-        display_dataset_info(df)
-    elif st.session_state.data_loaded:
+    
+    if not st.session_state.data_loaded:
+        st.info("📤 **Instrucciones:** Sube tu archivo de dataset (.CSV) para comenzar el análisis.")
+        
+        df = load_data()
+        if df is not None:
+            st.session_state.df = df
+            st.session_state.data_loaded = True
+            st.success("✅ Dataset cargado exitosamente!")
+            display_dataset_info(df)
+    else:
         # Mostrar el dataset actual si ya está cargado
+        st.success("✅ Dataset cargado - Puedes cambiar al módulo de análisis")
         display_dataset_info(st.session_state.df)
+        
+        # Opción para cargar nuevo dataset desde esta página también
+        if st.button("🔄 Cargar Nuevo Dataset desde aquí"):
+            change_dataset()
 
 def eda_page():
     st.header("🔍 Análisis Exploratorio de Datos")
