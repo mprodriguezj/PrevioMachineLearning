@@ -178,282 +178,285 @@ def decision_tree_module(df):
 def display_results(y_test, y_pred, y_prob, classes):
     st.subheader("Resultados de la Evaluación")
     
-    tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC y AUC"])
+    # Determinar el tipo de problema
+    n_classes = len(classes)
+    is_binary_classification = n_classes == 2
+    is_multiclass_classification = n_classes > 2
+    
+    # Crear pestañas según el tipo de problema
+    if is_binary_classification and y_prob is not None:
+        tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC y AUC"])
+    else:
+        tab1, tab2 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación"])
     
     # Matriz de Confusión
     with tab1:
         st.write("**Matriz de Confusión:**")
         cm = confusion_matrix(y_test, y_pred)
-        fig, ax = plt.subplots(figsize=(8, 6))
-        
-        # Calcular tamaño de fuente basado en el número de clases
-        n_classes = len(classes)
-        font_size = max(8, 12 - n_classes//3)  # Reduce el tamaño según número de clases
-        
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                    xticklabels=classes, yticklabels=classes, ax=ax,
-                    annot_kws={'size': font_size, 'weight': 'bold'},  # Tamaño de fuente ajustable
-                    cbar_kws={'shrink': 0.8})
-        
-        # Ajustar tamaño de fuente de las etiquetas
-        ax.set_xlabel('Predicciones', fontsize=10)
-        ax.set_ylabel('Valores Reales', fontsize=10)
-        ax.tick_params(axis='both', which='major', labelsize=9)  # Tamaño más pequeño para ticks
-        
+
+        num_classes = len(classes)
+
+        # 🔧 AJUSTES DINÁMICOS MEJORADOS para matriz de confusión
+        if num_classes == 2:
+            # Tamaño especial para 2 clases (como sex)
+            fig_width, fig_height = 6, 5
+            font_size = 16
+            tick_font_size = 14
+            annotation_size = 18
+        elif num_classes <= 5:
+            fig_width, fig_height = 8, 7
+            font_size = 14
+            tick_font_size = 12
+            annotation_size = 14
+        elif num_classes <= 10:
+            fig_width = min(1 + num_classes * 0.5, 12)
+            fig_height = min(1 + num_classes * 0.5, 12)
+            font_size = 10
+            tick_font_size = 10
+            annotation_size = 10
+        else:
+            fig_width = min(1 + num_classes * 0.5, 20)
+            fig_height = min(1 + num_classes * 0.5, 20)
+            font_size = 8
+            tick_font_size = 8
+            annotation_size = 8
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+        # Crear heatmap con mejoras visuales
+        heatmap = sns.heatmap(
+            cm,
+            annot=True,
+            fmt='d',
+            cmap='Blues',
+            xticklabels=classes,
+            yticklabels=classes,
+            annot_kws={'size': annotation_size, 'weight': 'bold'},
+            cbar_kws={'shrink': 0.7},
+            square=True  # Hace la matriz cuadrada para mejor aspecto
+        )
+
+        # Mejorar etiquetas y título
+        ax.set_xlabel('Predicciones', fontsize=tick_font_size + 2, weight='bold')
+        ax.set_ylabel('Valores Reales', fontsize=tick_font_size + 2, weight='bold')
+        ax.set_title('Matriz de Confusión', fontsize=font_size + 4, weight='bold', pad=20)
+
+        # Rotar etiquetas solo si hay muchas clases
+        if num_classes > 5:
+            rotation = 45
+            ha = 'right'
+        else:
+            rotation = 0
+            ha = 'center'
+
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha=ha, fontsize=tick_font_size)
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=tick_font_size)
+
+        # Añadir líneas de separación más visibles para pocas clases
+        if num_classes <= 5:
+            for i in range(num_classes + 1):
+                ax.axhline(i, color='white', linewidth=2)
+                ax.axvline(i, color='white', linewidth=2)
+
+        plt.tight_layout()
         st.pyplot(fig)
 
-    # Reporte de Clasificación Mejorado
+        # Mostrar advertencia si hay demasiadas clases
+        if num_classes > 15:
+            st.warning("⚠️ Hay muchas clases en la variable objetivo. Considera agrupar clases similares para una mejor visualización.")
+
+        # Información adicional para matrices pequeñas
+        if num_classes == 2:
+            st.info("""
+            **📊 Interpretación para 2 clases:**
+            - **Verdaderos Negativos (TN)**: Casos negativos correctamente clasificados
+            - **Falsos Positivos (FP)**: Casos negativos incorrectamente clasificados como positivos
+            - **Falsos Negativos (FN)**: Casos positivos incorrectamente clasificados como negativos  
+            - **Verdaderos Positivos (TP)**: Casos positivos correctamente clasificados
+            """)
+
+    # Reporte de Clasificación Simplificado
     with tab2:
         st.subheader("Reporte de Clasificación")
         
-        # Calcular el reporte
-        report = classification_report(y_test, y_pred, output_dict=True)
-        report_df = pd.DataFrame(report).transpose()
-        
-        # Separar métricas por clase y generales
-        accuracy = report['accuracy']  # Exactitud global
-        
-        # Obtener promedios (pueden no existir si hay solo una clase)
-        macro_avg = report.get('macro avg', {})
-        weighted_avg = report.get('weighted avg', {})
-        
-        # Obtener métricas por clase (excluyendo las globales)
-        class_metrics = {}
-        for key in report.keys():
-            if key not in ['accuracy', 'macro avg', 'weighted avg'] and isinstance(report[key], dict):
-                class_metrics[key] = report[key]
-        
-        class_metrics_df = pd.DataFrame(class_metrics).transpose()
-        
-        # Mostrar métricas globales de manera visual y clara
-        st.write("**Métricas Globales del Modelo**")
-        
-        # Crear columnas para las métricas principales
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric(
-                label="Exactitud (Accuracy)",
-                value=f"{accuracy:.3f}",
-                help="Porcentaje total de predicciones correctas"
-            )
-        
-        with col2:
-            precision_avg = weighted_avg.get('precision', 0) if weighted_avg else 0
-            st.metric(
-                label="Precisión Promedio",
-                value=f"{precision_avg:.3f}",
-                help="Capacidad del modelo para no predecir falsos positivos"
-            )
-        
-        with col3:
-            recall_avg = weighted_avg.get('recall', 0) if weighted_avg else 0
-            st.metric(
-                label="Recall Promedio", 
-                value=f"{recall_avg:.3f}",
-                help="Capacidad del modelo para encontrar todos los positivos"
-            )
-        
-        with col4:
-            f1_avg = weighted_avg.get('f1-score', 0) if weighted_avg else 0
-            st.metric(
-                label="F1-Score Promedio",
-                value=f"{f1_avg:.3f}",
-                help="Balance entre Precisión y Recall"
-            )
-        
-        # Explicación de las métricas
-        with st.expander("¿Qué significan estas métricas?"):
-            st.markdown("""
-            - **Exactitud (Accuracy)**: Porcentaje de predicciones correctas sobre el total.
-            - **Precisión (Precision)**: De todos los que predije como positivos, ¿cuántos realmente lo eran?
-            - **Recall (Sensibilidad)**: De todos los reales positivos, ¿cuántos logré identificar?
-            - **F1-Score**: Media armónica entre Precisión y Recall (balance entre ambas).
-            - **Soporte (Support)**: Número de muestras reales de cada clase.
-            """)
-        
-        # Mostrar tabla con métricas por clase si hay múltiples clases
-        if not class_metrics_df.empty:
-            st.write("**Métricas por Clase**")
+        if y_test is not None and y_pred is not None:
+            # Calcular el reporte
+            report = classification_report(y_test, y_pred, output_dict=True)
             
-            # Formatear el dataframe para mejor visualización
-            class_metrics_display = class_metrics_df.copy()
-            class_metrics_display.index.name = 'Clase'
-            class_metrics_display = class_metrics_display.reset_index()
+            accuracy = report.get('accuracy', 0)
+            macro_avg = report.get('macro avg', {})
+            weighted_avg = report.get('weighted avg', {})
             
-            # Mostrar tabla con métricas por clase
-            st.dataframe(
-                class_metrics_display.style.format({
-                    'precision': '{:.3f}',
-                    'recall': '{:.3f}', 
-                    'f1-score': '{:.3f}',
-                    'support': '{:.0f}'
-                }).highlight_max(subset=['precision', 'recall', 'f1-score'], color='#90EE90')
-                .highlight_min(subset=['precision', 'recall', 'f1-score'], color='#FFCCCB'),
-                use_container_width=True,
-                height=min(400, 150 + len(class_metrics_df) * 35)
-            )
-        
-        # Mostrar comparación entre promedios solo si existen
-        if macro_avg and weighted_avg:
-            st.write("**Comparación de Promedios**")
+            # Obtener métricas por clase
+            class_metrics = {}
+            for key in report.keys():
+                if key not in ['accuracy', 'macro avg', 'weighted avg'] and isinstance(report[key], dict):
+                    class_metrics[key] = report[key]
             
-            # Crear gráfico de comparación simple
-            fig, ax = plt.subplots(figsize=(10, 6))
+            # Métricas Globales
+            st.write("**Métricas Globales del Modelo**")
             
-            metrics = ['Precisión', 'Recall', 'F1-Score']
-            macro_values = [
-                macro_avg.get('precision', 0),
-                macro_avg.get('recall', 0), 
-                macro_avg.get('f1-score', 0)
-            ]
-            weighted_values = [
-                weighted_avg.get('precision', 0),
-                weighted_avg.get('recall', 0),
-                weighted_avg.get('f1-score', 0)
-            ]
+            col1, col2, col3, col4 = st.columns(4)
             
-            x = np.arange(len(metrics))
-            width = 0.35
+            with col1:
+                st.metric(
+                    label="Exactitud (Accuracy)",
+                    value=f"{accuracy:.3f}",
+                    help="Porcentaje total de predicciones correctas"
+                )
             
-            bars1 = ax.bar(x - width/2, macro_values, width, label='Macro Promedio', alpha=0.8, color='#FF9999')
-            bars2 = ax.bar(x + width/2, weighted_values, width, label='Promedio Ponderado', alpha=0.8, color='#66B2FF')
+            with col2:
+                precision_avg = weighted_avg.get('precision', macro_avg.get('precision', 0))
+                st.metric(
+                    label="Precisión Promedio",
+                    value=f"{precision_avg:.3f}",
+                    help="Capacidad del modelo para no predecir falsos positivos"
+                )
             
-            ax.set_ylabel('Valor')
-            ax.set_title('Comparación entre Macro Promedio y Promedio Ponderado')
-            ax.set_xticks(x)
-            ax.set_xticklabels(metrics)
-            ax.legend()
-            ax.set_ylim(0, 1.05)
+            with col3:
+                recall_avg = weighted_avg.get('recall', macro_avg.get('recall', 0))
+                st.metric(
+                    label="Recall Promedio", 
+                    value=f"{recall_avg:.3f}",
+                    help="Capacidad del modelo para encontrar todos los positivos"
+                )
             
-            # Añadir valores en las barras
-            for bar, value in zip(bars1, macro_values):
-                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                        f'{value:.3f}', ha='center', va='bottom', fontsize=10)
+            with col4:
+                f1_avg = weighted_avg.get('f1-score', macro_avg.get('f1-score', 0))
+                st.metric(
+                    label="F1-Score Promedio",
+                    value=f"{f1_avg:.3f}",
+                    help="Balance entre Precisión y Recall"
+                )
+
+            # Mostrar métricas por clase si hay múltiples clases
+            if class_metrics and len(class_metrics) > 1:
+                class_metrics_df = pd.DataFrame(class_metrics).transpose()
+                
+                # Gráfico de rendimiento por clase
+                st.write("**Rendimiento por Clase**")
+                
+                fig, ax = plt.subplots(figsize=(10, 5))
+                
+                classes = class_metrics_df.index
+                x = np.arange(len(classes))
+                width = 0.25
+                
+                # Crear barras para cada métrica
+                bars1 = ax.bar(x - width, class_metrics_df['precision'], width, label='Precisión', alpha=0.8, color='#FF6B6B')
+                bars2 = ax.bar(x, class_metrics_df['recall'], width, label='Recall', alpha=0.8, color='#4ECDC4')
+                bars3 = ax.bar(x + width, class_metrics_df['f1-score'], width, label='F1-Score', alpha=0.8, color='#45B7D1')
+                
+                # Personalizar gráfico
+                ax.set_xlabel('Clases')
+                ax.set_ylabel('Puntuación')
+                ax.set_title('Métricas por Clase')
+                ax.set_xticks(x)
+                ax.set_xticklabels(classes, rotation=45, ha='right')
+                ax.legend()
+                ax.set_ylim(0, 1.05)
+                ax.grid(True, alpha=0.3, axis='y')
+                
+                plt.tight_layout()
+                st.pyplot(fig)
+                
+                # Tabla de métricas
+                st.write("**Tabla de Métricas por Clase**")
+                
+                class_metrics_display = class_metrics_df.copy()
+                class_metrics_display.index.name = 'Clase'
+                class_metrics_display = class_metrics_display.reset_index()
+                
+                st.dataframe(
+                    class_metrics_display.style.format({
+                        'precision': '{:.3f}',
+                        'recall': '{:.3f}', 
+                        'f1-score': '{:.3f}',
+                        'support': '{:.0f}'
+                    }),
+                    use_container_width=True,
+                    height=min(300, 100 + len(class_metrics_df) * 35)
+                )
             
-            for bar, value in zip(bars2, weighted_values):
-                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                        f'{value:.3f}', ha='center', va='bottom', fontsize=10)
-            
-            # Explicación de la diferencia entre promedios
-            ax.text(0.02, 0.98, 
-                    "Macro: Promedia sin considerar desbalance de clases\nPonderado: Considera el tamaño de cada clase",
-                    transform=ax.transAxes, fontsize=9, verticalalignment='top',
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-            
-            plt.tight_layout()
-            st.pyplot(fig)
+            elif class_metrics and len(class_metrics) == 1:
+                # Caso binario
+                st.info("Clasificación binaria")
+                class_name = list(class_metrics.keys())[0]
+                metrics = class_metrics[class_name]
+                
+                st.write(f"**Métricas para la clase {class_name}:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Precisión", f"{metrics['precision']:.3f}")
+                with col2:
+                    st.metric("Recall", f"{metrics['recall']:.3f}")
+                with col3:
+                    st.metric("F1-Score", f"{metrics['f1-score']:.3f}")
+
         else:
-            st.info("ℹ️ Las métricas de promedio solo están disponibles para clasificación multiclase")
-    
-    # Curva ROC y AUC Mejorada
-    with tab3:
-        with st.expander("Curva ROC (Receiver Operating Characteristic)"):
-            st.markdown("""
-        La **Curva ROC** es una representación gráfica que muestra la capacidad de un clasificador 
-        para diferenciar entre clases. Se basa en dos métricas:
-        
-        - **Tasa de falsos positivos (False Positive Rate - FPR):** Proporción de negativos incorrectamente clasificados como positivos.
-        - **Tasa de verdaderos positivos (True Positive Rate - TPR):** Proporción de positivos correctamente identificados.
-        
-        La curva muestra la relación entre TPR y FPR para diferentes umbrales de decisión.
-        """)
-        
-        if y_prob is not None and len(classes) > 1:
+            st.warning("No hay datos de prueba o predicciones disponibles")
+            
+    # Curva ROC y AUC solo para clasificación binaria
+    if is_binary_classification and y_prob is not None:
+        with tab3:
+            with st.expander("Curva ROC (Receiver Operating Characteristic)"):
+                st.markdown("""
+            La **Curva ROC** es una representación gráfica que muestra la capacidad de un clasificador 
+            para diferenciar entre clases. Se basa en dos métricas:
+            
+            - **Tasa de falsos positivos (False Positive Rate - FPR):** Proporción de negativos incorrectamente clasificados como positivos.
+            - **Tasa de verdaderos positivos (True Positive Rate - TPR):** Proporción de positivos correctamente identificados.
+            
+            La curva muestra la relación entre TPR y FPR para diferentes umbrales de decisión.
+            
+            **Nota:** La curva ROC solo está disponible para problemas de clasificación binaria.
+            """)
+            
             try:
-                n_classes = len(classes)
+                # --- CORRECCIÓN PRINCIPAL: Convertir y_test a numérico ---
+                # Crear mapeo de clases a números
+                class_mapping = {class_name: i for i, class_name in enumerate(classes)}
+                y_test_numeric = np.array([class_mapping[label] for label in y_test])
                 
-                # Verificar y alinear las clases entre y_test y las clases del modelo
-                unique_test_classes = np.unique(y_test)
-                
-                # Si hay clases en test que no están en el entrenamiento
-                if len(unique_test_classes) != n_classes:
-                    st.warning(f"⚠️ Advertencia: Hay {len(unique_test_classes)} clases en test pero {n_classes} en entrenamiento")
-                    
-                    # Filtrar solo las muestras que pertenecen a las clases conocidas
-                    mask = y_test.isin(classes) if hasattr(y_test, 'isin') else np.isin(y_test, classes)
-                    y_test_filtered = y_test[mask]
-                    y_pred_filtered = y_pred[mask]
-                    y_prob_filtered = y_prob[mask]
-                    
-                    if len(y_test_filtered) == 0:
-                        st.error("❌ No hay muestras en test que coincidan con las clases de entrenamiento")
-                        return
-                    
-                    st.info(f"ℹ️ Usando {len(y_test_filtered)} muestras de test que coinciden con las clases de entrenamiento")
-                    
-                    y_test = y_test_filtered
-                    y_pred = y_pred_filtered
-                    y_prob = y_prob_filtered
-                
-                y_test_bin = label_binarize(y_test, classes=classes)
-                
-                # --- GRÁFICO 1: CURVA ROC ---
+                # --- GRÁFICO: CURVA ROC ---
                 st.subheader("Curva ROC")
 
-                # Ajustar tamaño de figura proporcionalmente
-                fig_width = 12
+                # Ajustar tamaño de figura
+                fig_width = 10
                 fig_height = 8
                 fig_roc, ax_roc = plt.subplots(figsize=(fig_width, fig_height))
 
-                if n_classes == 2:
-                    # Clasificación binaria
-                    fpr, tpr, _ = roc_curve(y_test, y_prob[:, 1])
-                    roc_auc = auc(fpr, tpr)
-                    
-                    ax_roc.plot(fpr, tpr, color='darkorange', lw=3, label=f'Curva ROC (AUC = {roc_auc:.3f})')
-                    ax_roc.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Línea base (AUC = 0.5)')
-                    ax_roc.set_xlim([0.0, 1.0])
-                    ax_roc.set_ylim([0.0, 1.05])
-                    ax_roc.set_xlabel('Tasa de Falsos Positivos (FPR)', fontsize=11)
-                    ax_roc.set_ylabel('Tasa de Verdaderos Positivos (TPR)', fontsize=11)
-                    ax_roc.set_title('Curva ROC - Clasificación Binaria', fontsize=13, fontweight='bold')
-                    
-                    # Leyenda fuera del gráfico
-                    ax_roc.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=10)
-                    ax_roc.grid(True, alpha=0.3)
-                    
-                    # Ajustar tamaño de ticks
-                    ax_roc.tick_params(axis='both', which='major', labelsize=10)
-                    
-                else:
-                    # Clasificación multiclase
-                    fpr = dict()
-                    tpr = dict()
-                    roc_auc = dict()
-                    colors = sns.color_palette("husl", n_classes)
-                    
-                    # Calcular AUC para cada clase
-                    for i in range(n_classes):
-                        fpr[i], tpr[i], _ = roc_curve(y_test_bin[:, i], y_prob[:, i])
-                        roc_auc[i] = auc(fpr[i], tpr[i])
-                        ax_roc.plot(fpr[i], tpr[i], color=colors[i], lw=2,
-                                label=f'{classes[i]} (AUC = {roc_auc[i]:.3f})')
-                    
-                    # Micro promedio
-                    fpr["micro"], tpr["micro"], _ = roc_curve(y_test_bin.ravel(), y_prob.ravel())
-                    roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
-                    
-                    ax_roc.plot(fpr["micro"], tpr["micro"],
-                            label=f'Micro-promedio (AUC = {roc_auc["micro"]:.3f})',
-                            color='black', linestyle=':', linewidth=3)
-                    
-                    ax_roc.plot([0, 1], [0, 1], 'k--', lw=2, label='Línea base (AUC = 0.5)')
-                    ax_roc.set_xlim([0.0, 1.0])
-                    ax_roc.set_ylim([0.0, 1.05])
-                    ax_roc.set_xlabel('Tasa de Falsos Positivos (FPR)', fontsize=11)
-                    ax_roc.set_ylabel('Tasa de Verdaderos Positivos (TPR)', fontsize=11)
-                    ax_roc.set_title('Curva ROC - Clasificación Multiclase', fontsize=13, fontweight='bold')
-                    
-                    # Leyenda fuera del gráfico
-                    ax_roc.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9)
-                    ax_roc.grid(True, alpha=0.3)
-                    
-                    # Ajustar tamaño de ticks
-                    ax_roc.tick_params(axis='both', which='major', labelsize=10)
+                # Clasificación binaria - CORREGIDO
+                # Para clasificación binaria, usar la segunda clase como positiva
+                pos_label = 1  # Segunda clase en el mapeo
+                
+                fpr, tpr, _ = roc_curve(y_test_numeric, y_prob[:, pos_label], pos_label=pos_label)
+                roc_auc = auc(fpr, tpr)
+                
+                ax_roc.plot(fpr, tpr, color='darkorange', lw=3, label=f'Curva ROC (AUC = {roc_auc:.3f})')
+                ax_roc.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Línea base (AUC = 0.5)')
+                ax_roc.set_xlim([0.0, 1.0])
+                ax_roc.set_ylim([0.0, 1.05])
+                ax_roc.set_xlabel('Tasa de Falsos Positivos (FPR)', fontsize=11)
+                ax_roc.set_ylabel('Tasa de Verdaderos Positivos (TPR)', fontsize=11)
+                ax_roc.set_title('Curva ROC - Clasificación Binaria', fontsize=13, fontweight='bold')
+                
+                # Mostrar qué clase se considera positiva
+                positive_class = classes[pos_label]
+                negative_class = classes[0]
+                ax_roc.text(0.02, 0.98, f'Clase positiva: {positive_class}\nClase negativa: {negative_class}', 
+                           transform=ax_roc.transAxes, fontsize=10, 
+                           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+                
+                # Leyenda fuera del gráfico
+                ax_roc.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=10)
+                ax_roc.grid(True, alpha=0.3)
+                
+                # Ajustar tamaño de ticks
+                ax_roc.tick_params(axis='both', which='major', labelsize=10)
 
                 # Ajustar el layout para hacer espacio para la leyenda
-                plt.tight_layout(rect=[0, 0, 0.88, 1])
+                plt.tight_layout(rect=[0, 0, 0.85, 1])
                 st.pyplot(fig_roc)
                 
                 with st.expander("Área bajo la curva (AUC)"):
@@ -469,114 +472,55 @@ def display_results(y_test, y_pred, y_prob, classes):
                 """)
                         
                 # --- MOSTRAR MÉTRICAS NUMÉRICAS ---
-                if n_classes == 2:
-                    st.subheader("Métricas de Evaluación")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("AUC Score", f"{roc_auc:.4f}")
-                    with col2:
-                        st.metric("Interpretación", interpretar_auc(roc_auc))
-                    with col3:
-                        quality = "✅ Excelente" if roc_auc >= 0.9 else "👍 Buena" if roc_auc >= 0.8 else "⚠️ Aceptable" if roc_auc >= 0.7 else "❌ Pobre"
-                        st.metric("Calidad", quality)
+                st.subheader("Métricas de Evaluación AUC")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("AUC Score", f"{roc_auc:.4f}")
+                with col2:
+                    st.metric("Interpretación", interpretar_auc(roc_auc))
+                with col3:
+                    quality = "✅ Excelente" if roc_auc >= 0.9 else "👍 Buena" if roc_auc >= 0.8 else "⚠️ Aceptable" if roc_auc >= 0.7 else "❌ Pobre"
+                    st.metric("Calidad", quality)
                 
-                else:
-                    # Métricas promedio para multiclase
-                    macro_auc = roc_auc_score(y_test, y_prob, multi_class='ovr', average='macro')
-                    micro_auc = roc_auc_score(y_test, y_prob, multi_class='ovr', average='micro')
-                    weighted_auc = roc_auc_score(y_test, y_prob, multi_class='ovr', average='weighted')
-                    
-                    st.subheader("Métricas de Evaluación AUC")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Macro AUC", f"{macro_auc:.4f}", help="Promedio simple de AUC por clase")
-                    with col2:
-                        st.metric("Micro AUC", f"{micro_auc:.4f}", help="Promedio ponderado por el tamaño de cada clase")
-                    with col3:
-                        st.metric("Weighted AUC", f"{weighted_auc:.4f}", help="Promedio ponderado por soporte de clase")
-                    
-                    # --- GRÁFICO 2: MÉTRICAS AUC ---
-                    fig_auc, ax_auc = plt.subplots(figsize=(10, 6))
-                    
-                    if n_classes == 2:
-                        # Gráfico de métricas AUC para binario
-                        metrics_data = [roc_auc]
-                        metric_labels = ['AUC']
-                        colors = ['lightgreen' if roc_auc >= 0.7 else 'lightcoral']
-                        
-                        bars = ax_auc.bar(metric_labels, metrics_data, color=colors, edgecolor='black', alpha=0.8)
-                        ax_auc.axhline(y=0.5, color='red', linestyle='--', alpha=0.7, label='Aleatorio')
-                        ax_auc.axhline(y=0.7, color='orange', linestyle='--', alpha=0.7, label='Aceptable')
-                        ax_auc.axhline(y=0.9, color='green', linestyle='--', alpha=0.7, label='Excelente')
-                        ax_auc.set_ylim(0, 1.1)
-                        ax_auc.set_ylabel('Valor AUC')
-                        ax_auc.set_title('Métrica AUC - Clasificación Binaria')
-                        ax_auc.legend()
-                        
-                        # Añadir valores en las barras
-                        for bar, v in zip(bars, metrics_data):
-                            height = bar.get_height()
-                            ax_auc.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                                    f'{v:.3f}', ha='center', va='bottom', fontweight='bold', fontsize=12)
-                        
-                    else:
-                        # Gráfico de barras para AUC por clase en multiclase
-                        auc_scores = [roc_auc[i] for i in range(n_classes)]
-                        colors = sns.color_palette("husl", n_classes)
-                        
-                        bars = ax_auc.bar(range(n_classes), auc_scores, color=colors, edgecolor='black', alpha=0.8)
-                        ax_auc.axhline(y=0.5, color='red', linestyle='--', alpha=0.7, label='Aleatorio')
-                        ax_auc.axhline(y=0.7, color='orange', linestyle='--', alpha=0.7, label='Aceptable')
-                        ax_auc.axhline(y=0.9, color='green', linestyle='--', alpha=0.7, label='Excelente')
-                        ax_auc.set_xticks(range(n_classes))
-                        ax_auc.set_xticklabels(classes, rotation=45, ha='right')
-                        ax_auc.set_ylabel('Valor AUC')
-                        ax_auc.set_title('AUC por Clase - Clasificación Multiclase')
-                        ax_auc.set_ylim(0, 1.1)
-                        ax_auc.legend()
-                        
-                        # Añadir valores en las barras
-                        for bar, score in zip(bars, auc_scores):
-                            height = bar.get_height()
-                            ax_auc.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                                    f'{score:.3f}', ha='center', va='bottom', fontweight='bold', fontsize=10)
-                    
-                    plt.tight_layout()
-                    st.pyplot(fig_auc)
-
-                    # Tabla detallada por clase
-                    st.subheader("AUC por Clase - Detalle")
-                    auc_data = []
-                    for i, class_name in enumerate(classes):
-                        auc_data.append({
-                            'Clase': class_name,
-                            'AUC': f"{roc_auc[i]:.4f}",
-                            'Interpretación': interpretar_auc(roc_auc[i]),
-                            'Muestras en Test': np.sum(y_test == class_name)
-                        })
-                    
-                    auc_df = pd.DataFrame(auc_data)
-                    st.dataframe(auc_df, use_container_width=True, hide_index=True)
-                    
-                    # Interpretación general
-                    st.subheader("Interpretación General")
-                    interpretacion = interpretar_auc(macro_auc)
-                    st.write(f"**Macro AUC ({macro_auc:.3f}):** {interpretacion}")
-                    
-                    if macro_auc >= 0.9:
-                        st.success("✅ Excelente poder discriminativo general del modelo")
-                    elif macro_auc >= 0.8:
-                        st.info("ℹ️ Buen poder discriminativo general del modelo")
-                    elif macro_auc >= 0.7:
-                        st.warning("⚠️ Poder discriminativo general aceptable")
-                    else:
-                        st.error("❌ Poder discriminativo general pobre")
+                # Gráfico de métricas AUC
+                fig_auc, ax_auc = plt.subplots(figsize=(8, 6))
+                
+                metrics_data = [roc_auc]
+                metric_labels = ['AUC']
+                colors = ['lightgreen' if roc_auc >= 0.7 else 'lightcoral']
+                
+                bars = ax_auc.bar(metric_labels, metrics_data, color=colors, edgecolor='black', alpha=0.8)
+                ax_auc.axhline(y=0.5, color='red', linestyle='--', alpha=0.7, label='Aleatorio')
+                ax_auc.axhline(y=0.7, color='orange', linestyle='--', alpha=0.7, label='Aceptable')
+                ax_auc.axhline(y=0.9, color='green', linestyle='--', alpha=0.7, label='Excelente')
+                ax_auc.set_ylim(0, 1.1)
+                ax_auc.set_ylabel('Valor AUC')
+                ax_auc.set_title('Métrica AUC - Clasificación Binaria')
+                ax_auc.legend()
+                
+                # Añadir valores en las barras
+                for bar, v in zip(bars, metrics_data):
+                    height = bar.get_height()
+                    ax_auc.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                            f'{v:.3f}', ha='center', va='bottom', fontweight='bold', fontsize=12)
+                
+                plt.tight_layout()
+                st.pyplot(fig_auc)
                         
             except Exception as e:
                 st.error(f"❌ Error al calcular las curvas ROC: {str(e)}")
                 st.info("ℹ️ Esto puede ocurrir cuando hay problemas con las probabilidades predichas o las clases objetivo")
-        else:
-            st.info("ℹ️ La curva ROC no está disponible para este modelo")
+    
+    # Mensaje informativo para problemas multiclase
+    elif is_multiclass_classification:
+        st.info("""
+        **ℹ️ Información sobre Métricas para Clasificación Multiclase:**
+        
+        Para problemas de clasificación con más de 2 clases:
+        - La **Curva ROC y AUC** no se muestran ya que son métricas diseñadas principalmente para clasificación binaria
+        - En su lugar, se recomienda usar las métricas mostradas en el Reporte de Clasificación (Precisión, Recall, F1-Score)
+        - La Matriz de Confusión proporciona una visión detallada del rendimiento por clase
+        """)
 
 def interpretar_auc(auc_score):
     """Función auxiliar para interpretar scores AUC"""

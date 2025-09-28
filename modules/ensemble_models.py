@@ -70,6 +70,15 @@ def ensemble_models_module(df):
             key="features_select_ensemble"
         )
     
+    # Resetear resultados si cambia la variable objetivo
+    if 'previous_target' not in st.session_state:
+        st.session_state.previous_target = target_col
+    
+    if st.session_state.previous_target != target_col:
+        st.session_state.ensemble_results = None
+        st.session_state.previous_target = target_col
+        st.rerun()
+    
     if not selected_features:
         st.warning("⚠️ Selecciona al menos una variable predictora")
         return
@@ -97,7 +106,8 @@ def ensemble_models_module(df):
     else:
         st.info("ℹ️ No se detectaron variables categóricas en los predictores")
 
-    # Variable objetivo
+    # Variable objetivo - Detectar si es numérica o categórica
+    is_numeric_target = False
     if y.dtype == 'object' or y.dtype.name == 'category':
         st.info("ℹ️ La variable objetivo es categórica - convirtiendo a numérico")
         try:
@@ -108,6 +118,17 @@ def ensemble_models_module(df):
         except Exception as e:
             st.error(f"❌ Error al procesar variable objetivo: {str(e)}")
             return
+    else:
+        # Es una variable numérica
+        is_numeric_target = True
+        st.info("ℹ️ La variable objetivo es numérica")
+        # Verificar si tiene suficientes clases para clasificación
+        unique_values = np.unique(y)
+        if len(unique_values) < 2:
+            st.error("❌ La variable objetivo debe tener al menos 2 valores diferentes")
+            return
+        elif len(unique_values) > 10:
+            st.warning("⚠️ La variable objetivo tiene muchos valores únicos. Considera si es apropiado para clasificación.")
 
     # Distribución de clases después de limpieza
     class_counts = pd.Series(y).value_counts()
@@ -163,7 +184,7 @@ def ensemble_models_module(df):
             **AdaBoost** (Adaptive Boosting) es un algoritmo de boosting que combina múltiples clasificadores débiles.
             
             **Cómo funciona:**
-            1. Entrena secuencialmente múltiples modelos débiles (generalmente árboles poco profundos)
+            1. Entrena secuencialmente múltiples modelos débils (generalmente árboles poco profundos)
             2. Ajusta los pesos de las instancias, dando más peso a las mal clasificadas
             3. Combina todos los modelos débiles ponderando su contribución
             
@@ -214,9 +235,20 @@ def ensemble_models_module(df):
     if st.button("Entrenar y Comparar Modelos", type="primary"):
         results = train_models(models_config, X_train, y_train, X_test, y_test, random_state)
         if results:
-            display_comparison_results(results, y_test)
+            st.session_state.ensemble_results = results
+            st.session_state.ensemble_y_test = y_test
+            st.session_state.is_numeric_target = is_numeric_target  # Guardar si es numérica
+            st.success("✅ Modelos entrenados exitosamente")
         else:
             st.error("❌ No se pudo entrenar ningún modelo. Revisa parámetros y datos.")
+    
+    # Mostrar resultados si existen
+    if 'ensemble_results' in st.session_state and st.session_state.ensemble_results:
+        display_comparison_results(
+            st.session_state.ensemble_results, 
+            st.session_state.ensemble_y_test,
+            st.session_state.is_numeric_target
+        )
 
 def configure_random_forest():
     col1, col2 = st.columns(2)
@@ -286,7 +318,7 @@ def train_models(models_config, X_train, y_train, X_test, y_test, random_state):
     
     return results
 
-def display_comparison_results(results, y_test):
+def display_comparison_results(results, y_test, is_numeric_target):
     st.subheader("Comparación de Modelos")
     
     comparison_data = []
@@ -302,17 +334,46 @@ def display_comparison_results(results, y_test):
         })
     
     comparison_df = pd.DataFrame(comparison_data)
-    st.dataframe(comparison_df.style.format({
-        'Accuracy': '{:.3f}', 'Recall': '{:.3f}', 'F1-Score': '{:.3f}'
-    }).highlight_max(color='lightgreen').highlight_min(color='#ffcccb'))
+    
+    # Definir explícitamente las columnas numéricas para el resaltado
+    numeric_columns = ['Accuracy', 'Recall', 'F1-Score']
+    
+    # Aplicar formato y resaltado SOLO a las columnas numéricas
+    styled_df = comparison_df.style.format({
+        'Accuracy': '{:.3f}', 
+        'Recall': '{:.3f}', 
+        'F1-Score': '{:.3f}'
+    }).highlight_max(
+        subset=numeric_columns, 
+        color='lightgreen',
+        axis=0  # Buscar máximo por columna
+    ).highlight_min(
+        subset=numeric_columns, 
+        color='#ffcccb',
+        axis=0  # Buscar mínimo por columna
+    )
+    
+    st.dataframe(styled_df, use_container_width=True)
 
     # Resultados individuales
     for model_name, result in results.items():
         with st.expander(f"Resultados detallados - {model_name}"):
-            show_model_results(y_test, result["y_pred"], result["y_prob"], result["classes"], model_name)
+            show_model_results(
+                y_test, 
+                result["y_pred"], 
+                result["y_prob"], 
+                result["classes"], 
+                model_name, 
+                is_numeric_target
+            )
 
-def show_model_results(y_test, y_pred, y_prob, classes, model_name):
-    tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC"])
+def show_model_results(y_test, y_pred, y_prob, classes, model_name, is_numeric_target):
+    # Si la variable objetivo es numérica, mostrar solo 2 pestañas
+    if is_numeric_target:
+        tab1, tab2 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación"])
+    else:
+        # Para variables categóricas, mostrar todas las pestañas
+        tab1, tab2, tab3 = st.tabs(["Matriz de Confusión", "Reporte de Clasificación", "Curva ROC y AUC"])
 
     with tab1:
         show_confusion_matrix(y_test, y_pred, classes, model_name)
@@ -320,8 +381,10 @@ def show_model_results(y_test, y_pred, y_prob, classes, model_name):
     with tab2:
         show_classification_report(y_test, y_pred, model_name)
     
-    with tab3:
-        show_roc_curve(y_test, y_prob, classes, model_name)
+    # Solo mostrar pestaña de ROC si NO es variable numérica
+    if not is_numeric_target:
+        with tab3:
+            show_roc_curve(y_test, y_prob, classes, model_name)
 
 def show_confusion_matrix(y_test, y_pred, classes, model_name):
     """Muestra matriz de confusión con tamaño de fuente ajustado"""
