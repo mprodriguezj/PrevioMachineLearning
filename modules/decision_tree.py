@@ -4,10 +4,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, plot_tree, export_graphviz
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, roc_auc_score
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import label_binarize
+import graphviz
+from io import StringIO
+import pydotplus
 
 def decision_tree_module(df):
     st.subheader("Configuración del Árbol de Decisión")
@@ -401,6 +404,36 @@ def decision_tree_module(df):
                     
                     st.success("✅ Modelo de clasificación entrenado exitosamente")
                     display_classification_results(y_test, y_pred, y_prob, model.classes_)
+                
+                # Visualización del árbol
+                st.subheader("Visualización del Árbol de Decisión")
+                
+                # Crear visualización del árbol
+                fig, ax = plt.subplots(figsize=(12, 8))
+                
+                # Determinar feature_names y class_names
+                feature_names = X.columns.tolist()
+                
+                if is_numeric_target:
+                    class_names = None  # No hay nombres de clase para regresión
+                else:
+                    if hasattr(model, 'classes_'):
+                        class_names = [str(c) for c in model.classes_]
+                    else:
+                        class_names = [str(c) for c in np.unique(y)]
+                
+                # Dibujar el árbol con configuración predeterminada
+                plot_tree(model, 
+                          max_depth=3,  # Profundidad fija para mejor visualización
+                          feature_names=feature_names,
+                          class_names=class_names,
+                          filled=True,
+                          rounded=True,
+                          ax=ax,
+                          fontsize=10)
+                
+                plt.tight_layout()
+                st.pyplot(fig)
         
         except Exception as e:
             st.error(f"❌ Error al entrenar el modelo: {str(e)}")
@@ -527,15 +560,11 @@ def display_classification_results(y_test, y_pred, y_prob, classes):
         ax.set_ylabel('Valores Reales', fontsize=tick_font_size + 2, weight='bold')
         ax.set_title('Matriz de Confusión', fontsize=font_size + 4, weight='bold', pad=20)
 
-        # Rotar etiquetas solo si hay muchas clases
-        if num_classes > 5:
-            rotation = 45
-            ha = 'right'
-        else:
-            rotation = 0
-            ha = 'center'
+        # Rotar etiquetas horizontales para evitar traslape
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
 
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=rotation, ha=ha, fontsize=tick_font_size)
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=tick_font_size)
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=tick_font_size)
 
         # Añadir líneas de separación más visibles para pocas clases
