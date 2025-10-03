@@ -267,7 +267,7 @@ def perform_eda(df):
             dtype_df.style.format({'% Nulos': '{:.1f}%'}), 
             use_container_width=True,
             height=400,
-            hide_index=True  # Elimina la columna de índice
+            hide_index=True
         )
         
         # Estadísticas descriptivas básicas
@@ -276,39 +276,33 @@ def perform_eda(df):
             stats_df = df[numeric_cols].describe().T
             st.dataframe(stats_df.style.format('{:.2f}'), use_container_width=True)
         
-        # Valores nulos por columna
-        st.write("**Valores Nulos por Columna:**")
-        missing_df = pd.DataFrame({
-            'Columna': df.columns,
-            'Valores Nulos': df.isnull().sum(),
-            'Porcentaje Nulos': (df.isnull().sum() / len(df)) * 100
-        }).sort_values('Porcentaje Nulos', ascending=False)
-        
-        # Aplicar formato sin highlight_null que causa error
-        styled_missing_df = missing_df.style.format({'Porcentaje Nulos': '{:.1f}%'})
-        st.dataframe(
-            styled_missing_df, 
-            use_container_width=True,
-            hide_index=True  # Elimina la columna de índice
-        )
-        
-        # Gráfico de valores nulos
-        if missing_df['Valores Nulos'].sum() > 0:
-            missing_plot_df = missing_df[missing_df['Valores Nulos'] > 0]
-            if len(missing_plot_df) > 0:
-                fig, ax = plt.subplots(figsize=(12, 6))
-                bars = ax.bar(missing_plot_df['Columna'], missing_plot_df['Porcentaje Nulos'], 
-                            color='red', alpha=0.7)
-                ax.set_xlabel('Columnas')
-                ax.set_ylabel('Porcentaje de Valores Nulos (%)')
-                ax.set_title('Distribución de Valores Nulos por Columna')
-                plt.xticks(rotation=45, ha='right')
-                
-                # Añadir valores en las barras
-                for bar in bars:
-                    height = bar.get_height()
-                    ax.text(bar.get_x() + bar.get_width()/2., height + 0.5,
-                            f'{height:.1f}%', ha='center', va='bottom')
-                
-                plt.tight_layout()
-                st.pyplot(fig)
+        # Gráfico de valores nulos solo si hay nulos
+        null_counts = df.isnull().sum()
+        if null_counts.sum() > 0:
+            st.write("**Valores Nulos por Columna:**")
+            
+            # Filtrar solo columnas con nulos para el gráfico
+            columns_with_nulls = null_counts[null_counts > 0]
+            null_percentage = (columns_with_nulls / len(df)) * 100
+            
+            missing_plot_df = pd.DataFrame({
+                'Columna': columns_with_nulls.index,
+                'Porcentaje Nulos': null_percentage
+            }).sort_values('Porcentaje Nulos', ascending=False)
+            
+            fig, ax = plt.subplots(figsize=(max(10, len(columns_with_nulls) * 0.8), 6))
+            bars = ax.bar(missing_plot_df['Columna'], missing_plot_df['Porcentaje Nulos'], 
+                        color='red', alpha=0.7)
+            ax.set_xlabel('Columnas')
+            ax.set_ylabel('Porcentaje de Valores Nulos (%)')
+            ax.set_title('Distribución de Valores Nulos por Columna')
+            plt.xticks(rotation=45, ha='right')
+            
+            # Añadir valores en las barras
+            for bar in bars:
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height + 0.5,
+                        f'{height:.1f}%', ha='center', va='bottom', fontsize=9)
+            
+            plt.tight_layout()
+            st.pyplot(fig)
