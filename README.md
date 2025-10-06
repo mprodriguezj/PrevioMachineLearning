@@ -9,6 +9,15 @@ Tiene como objetivo la **implementación, evaluación y despliegue** de modelos 
 La aplicación fue construida con **Streamlit** y permite una interacción visual e intuitiva con los modelos, desde la carga de datos hasta la interpretación de métricas.
 
 ---
+## Acceso a la Aplicación
+
+Puedes acceder a la versión desplegada de la aplicación aquí:
+[https://previomachinelearning-uis.streamlit.app/](https://previomachinelearning-uis.streamlit.app/)
+
+Además, puedes consultar la documentación detallada sobre su arquitectura en la siguiente wiki:
+[https://deepwiki.com/mprodriguezj/PrevioMachineLearning/3.1-main-application-architecture](https://deepwiki.com/mprodriguezj/PrevioMachineLearning/3.1-main-application-architecture)
+
+---
 
 ## Características
 
